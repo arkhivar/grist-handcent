@@ -35,7 +35,8 @@ migrate 919 rows with read-back verification; old tables frozen as archive.
 **Consequences:** one query surface; writers simplified to a single `fields_txn` map.
 Server lacks a rename endpoint, so Transactions is a new table — the user's main Grist
 page had to be pointed at it manually. Mid lookups are not source-scoped (collision
-caveat documented in `_GRIST.md`).
+caveat documented in `_GRIST.md`). *Superseded by #9 on 2026-10-02 — Transactions was
+merged into RevenueBase.*
 
 ## 5. Zero inbox + `unparsed` rows (2026-09-29)
 **Context:** two messages resisted classification for days; keepers (payroll notices,
@@ -68,6 +69,28 @@ this repo, SHA-pinned actions, no PR-triggered workflows.
 **Decision:** user removed the `direction` column and converted `op_type` to Choice;
 the engine was updated the same day (writers no longer emit `direction`; `op_type` is
 sent as a plain string label) and the offline harness re-verified.
-**Consequences:** one axis to rule the review workflow; row schema for unparsed is now
-exactly `{date, text, mid, source, op_type}`. When adding new op_type values, add the
-choice label in Grist first (or confirm invalid values are allowed on that column).
+**Consequences:** one axis to rule the review workflow; the unparsed row schema became
+exactly 5 base keys. When adding new op_type values, add the choice label in Grist
+first (or confirm invalid values are allowed on that column).
+
+## 9. Unified ledger: merge `Transactions` into `RevenueBase` (2026-10-02)
+**Context:** the user had been keeping manual payment rows in a separate table while
+the engine wrote bank rows to `Transactions`; two ledgers meant two surfaces for one
+question ("what was paid, when, by whom"). At the same time, `op_type` had just become
+a Choice single select (2026-10-01, decision #8), making `direction` definitively
+redundant.
+**Decision:** merge `Transactions` into the unified ledger `RevenueBase` — 1,977+ rows
+= 1,187 manual payment rows + 790 bank rows, with `SUM(Paid)` unchanged as the
+migration checksum — and prune fields in the same pass: `direction` removed (op_type
+carries the info), `card` reserved for manual assignment (engine must not write it),
+`doc_date` retired (data moved to the payment-side `Date`), `via` merged into
+`source`, `notes2` dropped (always empty), `text` merged into `notes`, `date2`
+renamed to `datetime`. The engine re-pointed via its single module constant. New bank
+rows leave `Date` empty, pending a decision on whether the engine should fill it from
+parsed doc dates.
+**Consequences:** one live payment ledger (only the 19-row `Income` archive remains;
+Expenses/T900/Transactions/Transactions2 deleted). Engine row schema is now exactly
+`{datetime, notes, mid, source, op_type}` + parsed-only `{amount, counterparty,
+balance_after, doc_number, account_from, account_to}`. A table rename is still coming
+— re-pointing the engine is a one-line change. Live run 2026-10-02 verified end-to-end
+against RevenueBase (all writes "VERIFY OK").
