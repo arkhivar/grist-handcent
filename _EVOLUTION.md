@@ -60,6 +60,22 @@
 - Schema tidy: `direction` column removed (redundant with `op_type`), `op_type`
   converted to single-select; engine updated and harness-verified the same day.
 
+### October 1–2 — one ledger to rule them all
+- The user merged `Transactions` into **RevenueBase** — the unified live payment
+  ledger: 1,977+ rows = 1,187 manual payment rows + 790 bank rows, with `SUM(Paid)`
+  unchanged as the migration checksum.
+- Manual field restructure in the same pass (6 changes): `direction` deleted;
+  `card` made user-assigned only (engine no longer writes it); `doc_date` retired
+  (data moved to the payment-side `Date`); `via` merged into `source`; `notes2`
+  dropped (was always empty); and the rename/merge pair — `text` into `notes`,
+  `date2` into `datetime`.
+- Engine re-pointed to RevenueBase (one module constant) and live-verified end-to-end
+  on 2026-10-02: 900 → 2 scanned / 2 rows / 2 deleted; 0321 → 2 scanned / 1 row
+  (1 OTP purged) / 2 deleted; every write read back "VERIFY OK".
+- Archives reduced to `Income` (19 rows) — Expenses, T900, Transactions and
+  Transactions2 are gone. A table rename by the user is still coming; the engine
+  re-point is one line.
+
 ## Where the pieces live
 
 | Piece | Location |
@@ -67,5 +83,5 @@
 | Canonical sync engine (`sms_grist_sync.py`) | this repo (to be imported — deployed copy lives in the Kimi Work automation assets) |
 | API history & rituals | `handcent-sms-dedup` skill (local Kimi Work skills dir) |
 | Operations console | Kimi Work widget "SMS → Grist bridge" on the Daily Finance canvas |
-| Data | Grist doc `tRknrJrfbW3L`, table `Transactions` |
+| Data | Grist doc `tRknrJrfbW3L`, table `RevenueBase` (unified ledger; `Income` is the only archive) |
 | Design system for future Grist widgets | [arkhivar/grist](https://github.com/arkhivar/grist) (`shared/base.css`, `shared/core.js`, `AGENTS.md`) |
