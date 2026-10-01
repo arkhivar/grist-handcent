@@ -15,7 +15,7 @@
    twin mids become deletion targets (the bank double-sends every debit).
 4. **Dedup vs Grist** — `GET /records?filter={"mid":[...]}` in chunks of 8 (0.3–0.4s
    between chunks). Never full-table reads.
-5. **Write** — `POST /tables/Transactions/records`, batches of 10 rows (server drops
+5. **Write** — `POST /tables/RevenueBase/records`, batches of 10 rows (server drops
    ~25KB POSTs — see `_GRIST.md`).
 6. **Read-back verify** — re-fetch by mids (chunked), assert presence (and amount where
    applicable). **A message may only be deleted after its row is verified.** The only
@@ -56,9 +56,8 @@
 ## Parsers
 
 - **0321**: `СберБизнес. Списание …` → expense row; `СберБизнес. Поступление …` →
-  income row (grammar incl. multi-doc "по N документам", counterparty, balance,
-  doc_date `DD.MM.YYYY`). Regexes were iterated against the full corpus to zero
-  failures.
+  income row (grammar incl. multi-doc "по N документам", counterparty, balance).
+  Regexes were iterated against the full corpus to zero failures.
 - **900**: card-account message shapes with an op-type dispatch table:
   `purchase`, `purchase_sbp`, `transfer_out`, `transfer_in`, `sbp_in`, `refund`,
   `payment`, `fee`, `confirm`, `promo`, plus special shapes `declined` (insufficient
@@ -69,19 +68,39 @@
   Rule: **0321 OTPs are deleted WITHOUT a Grist row** (never archived); **900 OTPs get
   a row** (`op_type="otp"`) so the codes stay glanceable in the widget strip.
 - **unparsed** (zero-inbox): every scanned message that isn't parsed and isn't a
-  0321 OTP gets `{date, text, mid, source, op_type:"unparsed"}` — nothing else.
-  Review in Grist, not on the phone.
+  0321 OTP gets `{datetime, notes, mid, source, op_type:"unparsed"}` — exactly those
+  5 keys, nothing else. Review in Grist, not on the phone.
 
 ## Grist writes
 
 - Base: `https://seoffice.getgrist.com/api/docs/tRknrJrfbW3L`; Bearer key from
   `grist_api.txt` (never printed).
-- One table — `Transactions` — receives everything; `source` = `"0321"`/`"900"`.
-- `op_type` is a **Choice (single select)** column; writers send plain string labels.
-- Writers set ONLY their own fields; user columns (`category`, `performance`,
-  `Created_at`/`Last_updated_at` triggers, `notes2`) are never touched.
-- `date` = `sms_ts // 1000` (s); `doc_date` = epoch of `DD.MM.YYYY` tagged UTC;
-  display TZ is Asia/Vladivostok (UTC+10).
+- One table — `RevenueBase`, the unified ledger — receives everything; `source` =
+  `"0321"`/`"900"` for bank rows.
+- Engine row keys:
+  - **Base, written every row**: `datetime`, `notes` (raw SMS text), `mid`, `source`,
+    `op_type`.
+  - **Parsed bank operations only**: `amount`, `counterparty`, `balance_after`,
+    `doc_number`, `account_from`, `account_to`.
+  - `card`, `doc_date`, `direction`, `text`, `date2`, `notes2`, `via` are **not**
+    written anymore — removed or renamed in the 2026-10-01/02 restructure (see
+    `_GRIST.md`).
+- `op_type` is a **Choice (single select since 2026-10-01)** column; writers send plain
+  string labels.
+- Writers set ONLY their own fields; user columns (`category`, `performance`, `Paid`,
+  `student`, `sprint_*`, `Date`, manual edits of `notes`) are never touched. New bank
+  rows leave `Date` empty.
+- `datetime` = `sms_ts // 1000` (epoch seconds); display TZ is Asia/Vladivostok (UTC+10).
+
+## Automation deployment
+
+- Blueprint Automation `automation_112c8e63-0532-432e-9e61-ef8b627db65d`
+  ("SMS → Grist sync"): manual trigger, Python, 15-min timeout, entry
+  `sms_grist_sync.py`; triggered from the "SMS → Grist bridge" widget on the Daily
+  Finance canvas.
+- Live verification 2026-10-02 against RevenueBase: 900 → 2 scanned / 2 rows / 2
+  deleted; 0321 → 2 scanned / 1 row (1 OTP purged) / 2 deleted; all writes
+  "VERIFY OK".
 
 ## Artifact contract (widget Binding)
 
