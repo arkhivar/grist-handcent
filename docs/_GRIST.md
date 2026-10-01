@@ -14,9 +14,9 @@ one-line re-point.)
 
 | Group | Columns |
 |---|---|
-| Engine base (written every row) | `datetime` (epoch seconds; renamed from `date2`), `notes` (holds the raw SMS text — the old `text` column was merged into `notes`), `mid` (Int), `source` (Choice, single select), `op_type` (Choice, single select, since 2026-10-01) |
-| Engine parsed-only (bank operations) | `amount`, `counterparty`, `balance_after`, `doc_number`, `account_from`, `account_to` |
-| **User-owned — the pipeline NEVER writes these** | `category` (Choice), `performance` (Ref), `Paid`, `student`, `sprint_*`…, `Date` — plus manual edits of `notes` |
+| Engine base (written every row) | `datetime` (epoch seconds; the single source of truth for when — filled from SMS timestamp for bank rows, copied from the old `Date` column for payment rows), `notes` (holds the raw SMS text — the old `text` column was merged into `notes`), `mid` (Int), `source` (Choice, single select), `op_type` (Choice, single select, since 2026-10-01) |
+| Engine parsed-only (bank operations) | `amount` (unified money column — payment rows' old `Paid` values were moved here), `counterparty`, `balance_after`, `doc_number`, `account_from`, `account_to` |
+| **User-owned — the pipeline NEVER writes these** | `category` (Choice), `performance` (Ref), `student`, `sprint_*`… — plus manual edits of `notes` |
 
 Notes:
 - `source` vocabulary: `900`, `0321` (bank senders) · `AVq`, `DSc`, `SBb`, `ALb`
@@ -27,12 +27,11 @@ Notes:
   `transfer_out`, `transfer_in`, `sbp_in`, `refund`, `payment`, `fee`, `confirm`,
   `promo`, `declined`, `court_collection`.
 - Unparsed rows carry exactly the 5 base keys with `op_type="unparsed"`.
-- New bank rows leave `Date` empty (undecided whether the engine should fill it
-  later from parsed doc dates).
 - Columns removed in the 2026-10-01/02 restructure — do not reference them anywhere:
   `direction` (in/out/info is carried by `op_type`), `card` (user assigns it
-  manually; the engine must NOT write it), `doc_date` (data moved to the
-  payment-side `Date`), `via` (merged into `source`), `notes2` (was always empty),
+  manually; the engine must NOT write it), `doc_date`, `Date` (both retired —
+  `datetime` is the single timestamp column), `Paid` (values moved to the unified
+  `amount`), `via` (merged into `source`), `notes2` (was always empty),
   `text` (merged into `notes`), `date2` (renamed to `datetime`).
 
 **Review workflow:** filter `op_type = unparsed` → sort/categorize/delete *in Grist*.
