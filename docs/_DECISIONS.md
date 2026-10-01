@@ -94,3 +94,17 @@ Expenses/T900/Transactions/Transactions2 deleted). Engine row schema is now exac
 balance_after, doc_number, account_from, account_to}`. A table rename is still coming
 — re-pointing the engine is a one-line change. Live run 2026-10-02 verified end-to-end
 against RevenueBase (all writes "VERIFY OK").
+
+## 10. `Date`/`Paid` retired — `datetime` and `amount` are the single source of truth (2026-10-02)
+**Context:** after the merge, the ledger had two date-ish columns (`Date` for payment
+rows, `datetime` for bank rows) and two money columns (`Paid` for payments, `amount`
+for bank rows) — the exact duplication decisions #8/#9 were trying to eliminate.
+**Decision:** the user copied `Date` → `datetime` in Grist (rows without a time got a
+default "12:00am") and deleted both `Date` and `Paid`. No engine change was needed —
+neither column was ever engine-written; the engine's `amount` write path was already
+in place. Schema re-verified from Grist (`PRAGMA`-style probe: 24 fields, no stale
+columns) and an empty-inbox live run completed cleanly.
+**Consequences:** `datetime` is now the sole timestamp column for every row (epoch
+seconds), `amount` the sole money column. The pending "should the engine fill `Date`?"
+question from #9 is moot. User-owned columns the engine must not touch are now:
+`category`, `performance`, `student`, `sprint_*`, plus manual edits of `notes`.
