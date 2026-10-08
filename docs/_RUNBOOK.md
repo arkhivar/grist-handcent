@@ -22,6 +22,32 @@ browser session; grabbing it needs the local WebBridge daemon (127.0.0.1:10086).
    after each refresh.
 5. WebBridge daemon down (connection refused on :10086)? Restart Kimi Work.
 
+## GitHub Actions phase
+
+The engine also runs on GitHub Actions (`arkhivar/grist-handcent`), triggered
+by the phone — no awake PC required. The workflow ships at `workflows/sms-sync.yml`
+because the MCP gateway refuses to write `.github/workflows/`; **activate it
+manually**: move the file to `.github/workflows/sms-sync.yml` in the GitHub UI
+(or `git mv` + push). The run+upload step it calls lives in
+`.github/actions/sms-sync-run/action.yml` and is already in place.
+
+- **Repo Secrets** (Settings → Secrets and variables → Actions):
+  - `HANDCENT_AUTH` — full contents of `auth-headers.json` (one line, valid JSON).
+  - `GRIST_API_KEY` — the Grist API key (contents of `grist_api.txt`).
+- **JWT refresh (~every 5 weeks):** same browser-localStorage ritual as above,
+  then update the secret instead of the file:
+  `gh secret set HANDCENT_AUTH < auth-headers.json` (run from the repo root).
+- **Manual trigger:** Actions tab → "SMS → Grist sync" → Run workflow → pick
+  cid (276 / 277 / 0321 / 900 / all, default all).
+- **Phone trigger:** Tasker/MacroDroid fires on the SMS-received broadcast and
+  POSTs `repository_dispatch` (type `sms-sync`, optional `client_payload.cid`).
+- **Logs/artifacts:** the run page shows the live log; the returned artifact JSON
+  (per-sender counters, latest codes, log tail — never credentials) is attached
+  as the `sms-sync-artifact` download.
+- **Safety net:** a 15-min `schedule` run exists while the phone-side trigger is
+  being proven; it burns Actions minutes (~500–900 min/month) — delete the
+  `schedule` block in the workflow once dispatch is stable.
+
 ## Widget states — how to read them
 
 - **Error chip on one sender** with run-level "succeeded": per-sender crash isolation
@@ -65,4 +91,5 @@ batch, not just at the end.
   daemon "disappears", check Protection history before debugging code. Recommended:
   a permanent exclusion for the tools directory.
 - Secrets (`auth-headers.json`, `grist_api.txt`) live as local files next to the
-  deployed engine; they are never printed, logged, or committed.
+  deployed engine; they are never printed, logged, or committed. In the cloud phase
+  they additionally live as GitHub Secrets (`HANDCENT_AUTH`, `GRIST_API_KEY`).
