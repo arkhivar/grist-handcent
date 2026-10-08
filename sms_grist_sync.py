@@ -1,7 +1,8 @@
 """SMS -> Grist sync pipeline for Kimi Work Blueprint Automation.
 
 Zero-inbox edition: EVERY scanned message ends up as a verified Grist row in
-the unified `RevenueBase` table and is then deleted from the phone — except
+the unified ledger table (`Transactions` by default, overridable via the
+`GRIST_TABLE` env var) and is then deleted from the phone — except
 0321 OTP/code messages, which are deleted WITHOUT a row (standing rule).
 Unparseable messages become op_type="unparsed" rows; nothing is kept.
 
@@ -45,7 +46,7 @@ CID_0321 = 276
 CID_900 = 277
 
 GRIST_DOC = "https://seoffice.getgrist.com/api/docs/tRknrJrfbW3L/tables"
-TABLE = "Transactions"  # single Grist target (renames are a one-line change)
+TABLE = os.environ.get("GRIST_TABLE") or "Transactions"  # overridable via repo Variable
 
 HTTP_TIMEOUT = 60          # seconds, per spec
 SCAN_PAGE_PAUSE = 0.4      # scan900.py
@@ -222,7 +223,7 @@ def _norm_msg(m, cid):
 def paginate_conversation(cid, headers, max_pages=80):
     """Pages backwards through the FULL conversation, 30 msgs/page.
     No known-in-Grist early stop: under zero-inbox a message may already
-    have a RevenueBase row and still be on the phone (it is then a
+    have a ledger row and still be on the phone (it is then a
     deletion target), so every page must be scanned."""
     msgs, seen = {}, set()
     before = None
@@ -313,7 +314,7 @@ def is_otp_0321(text):
 def classify_0321(text):
     """Returns 'expense' | 'income' | 'otp' | None.
     None means UNPARSED under zero-inbox rules: the message still gets a
-    RevenueBase row (op_type="unparsed") and is deleted after verification.
+    ledger row (op_type="unparsed") and is deleted after verification.
     There are NO keeper/exempt messages anymore."""
     if text.startswith("СберБизнес. Списание"):
         return "expense"
@@ -412,7 +413,7 @@ def unparsed_row(m):
 
 
 # ---------------------------------------------------------------------------
-# Row builder (RevenueBase schema; only known fields are sent, None-valued
+# Row builder (ledger table schema; only known fields are sent, None-valued
 # keys are OMITTED — so unparsed rows carry no amount/counterparty)
 # ---------------------------------------------------------------------------
 
@@ -555,7 +556,7 @@ def delete_burst(targets, headers):
 
 
 def delete_with_verification(cid, headers, target_msgs):
-    """HARD RULE: every mid here already has a Grist-verified RevenueBase row
+    """HARD RULE: every mid here already has a Grist-verified ledger row
     (or is a 0321 OTP). Sends frames, waits out the server lag, full REST
     rescan; resends stragglers up to MAX_ROUNDS total rounds. Deletion
     confirmed ONLY by absence in the msgs LIST (never /msg/text/<mid> — it
@@ -605,7 +606,7 @@ def run_sender(cfg, cid, source, codes):
     """Unified zero-inbox pipeline for one sender.
     Deletion set = union of:
       * mids of every twin group whose representative row read-back-verified
-        in RevenueBase (parsed AND unparsed rows alike), plus
+        in the ledger table (parsed AND unparsed rows alike), plus
       * 0321 OTP mids (deleted WITHOUT any Grist row).
     No message class is exempt."""
     headers, key = cfg["headers"], cfg["grist_key"]
@@ -742,7 +743,7 @@ def run(ctx):
             cid = CID_0321 if cur == "0321" else CID_900
             artifact["senders"][cur] = run_sender(cfg, cid, cur, codes)
         # f900-unsent.json (900 run only): mids whose deletion frames were never
-        # sent. Rows were verified yesterday; re-verify against RevenueBase,
+        # sent. Rows were verified yesterday; re-verify against the ledger table,
         # then delete the ones still on the phone.
         if "900" in senders and cfg["f900_unsent"]:
             f900 = cfg["f900_unsent"]
