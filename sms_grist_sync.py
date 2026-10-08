@@ -45,7 +45,7 @@ CID_0321 = 276
 CID_900 = 277
 
 GRIST_DOC = "https://seoffice.getgrist.com/api/docs/tRknrJrfbW3L/tables"
-TABLE = "RevenueBase"  # single Grist target (renames are a one-line change)
+TABLE = "Transactions"  # single Grist target (renames are a one-line change)
 
 HTTP_TIMEOUT = 60          # seconds, per spec
 SCAN_PAGE_PAUSE = 0.4      # scan900.py
