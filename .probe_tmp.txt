@@ -1,1 +1,1 @@
-HANDCENT_AUTH: ${{ secrets.HANDCENT_AUTH }}
+SYNC_CID: ${{ github.event_name == 'repository_dispatch' && (github.event.client_payload.cid || 'all') || (github.event_name == 'workflow_dispatch' && inputs.cid || 'all') }}
