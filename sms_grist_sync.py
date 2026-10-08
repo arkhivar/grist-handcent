@@ -2,9 +2,9 @@
 
 Zero-inbox edition: EVERY scanned message ends up as a verified Grist row in
 the unified ledger table (`Transactions` by default, overridable via the
-`GRIST_TABLE` env var) and is then deleted from the phone — except
-0321 OTP/code messages, which are deleted WITHOUT a row (standing rule).
-Unparseable messages become op_type="unparsed" rows; nothing is kept.
+`GRIST_TABLE` env var) and is then deleted from the phone — codes and
+unparseable messages included (op_type="otp" / "unparsed" rows); nothing is
+ever deleted without a verified row.
 
 Ports the proven logic from the battle-tested workspace scripts:
   - scan900.py          (REST pagination of Handcent msgs)
@@ -305,9 +305,9 @@ def to_float(s):  # parse_expenses.py / parse_900.py
 
 
 def is_otp_0321(text):
-    """0321 OTP/code classifier (SKILL.md OTP purge): every code message
-    contains the catch-all phrase — matched exactly the 489 codes and
-    nothing else. OTPs are deleted WITHOUT a Grist row (standing rule)."""
+    """0321 OTP/code classifier: every code message contains the catch-all
+    phrase — matched exactly the 489 codes and nothing else. Codes now get
+    a ledger row (op_type="otp") like everything else."""
     return "Не сообщайте код никому" in text
 
 
@@ -315,7 +315,8 @@ def classify_0321(text):
     """Returns 'expense' | 'income' | 'otp' | None.
     None means UNPARSED under zero-inbox rules: the message still gets a
     ledger row (op_type="unparsed") and is deleted after verification.
-    There are NO keeper/exempt messages anymore."""
+    kind 'otp' also gets a ledger row (op_type="otp") — same 5-key base
+    shape as unparsed rows. There are NO keeper/exempt messages anymore."""
     if text.startswith("СберБизнес. Списание"):
         return "expense"
     if text.startswith("СберБизнес. Поступление"):
@@ -556,8 +557,8 @@ def delete_burst(targets, headers):
 
 
 def delete_with_verification(cid, headers, target_msgs):
-    """HARD RULE: every mid here already has a Grist-verified ledger row
-    (or is a 0321 OTP). Sends frames, waits out the server lag, full REST
+    """HARD RULE: every mid here already has a Grist-verified ledger row.
+    Sends frames, waits out the server lag, full REST
     rescan; resends stragglers up to MAX_ROUNDS total rounds. Deletion
     confirmed ONLY by absence in the msgs LIST (never /msg/text/<mid> — it
     200s on deleted). Returns (sms_deleted, final_msgs, sent_total)."""
@@ -590,7 +591,7 @@ def delete_with_verification(cid, headers, target_msgs):
 
 # ---------------------------------------------------------------------------
 # Per-sender pipelines (zero-inbox: every scanned mid lands in the deletion
-# pipeline — parsed row, unparsed row, or 0321 OTP)
+# pipeline — parsed row, unparsed row, or code row)
 # ---------------------------------------------------------------------------
 
 def _entry():
@@ -604,11 +605,9 @@ def _finish(entry):
 
 def run_sender(cfg, cid, source, codes):
     """Unified zero-inbox pipeline for one sender.
-    Deletion set = union of:
-      * mids of every twin group whose representative row read-back-verified
-        in the ledger table (parsed AND unparsed rows alike), plus
-      * 0321 OTP mids (deleted WITHOUT any Grist row).
-    No message class is exempt."""
+    Deletion set = mids of every twin group whose representative row
+    read-back-verified in the ledger table (parsed, unparsed, and code
+    rows alike). No message class is exempt."""
     headers, key = cfg["headers"], cfg["grist_key"]
     entry = _entry()
 
@@ -616,7 +615,7 @@ def run_sender(cfg, cid, source, codes):
     entry["scanned"] = len(msgs)
     by_mid = {m["mid"]: m for m in msgs}
 
-    rows, otp_msgs, unparsed = [], [], []
+    rows, unparsed = [], []
     if source == "0321":
         for m in msgs:
             kind = classify_0321(m["data"])
@@ -637,7 +636,9 @@ def run_sender(cfg, cid, source, codes):
                     row["op_type"] = "income"
                     rows.append(row)
             elif kind == "otp":
-                otp_msgs.append(m)
+                row = unparsed_row(m)
+                row["op_type"] = "otp"
+                rows.append(row)
             else:  # payroll notices, promos, strays — zero-inbox: unparsed row
                 unparsed.append(m)
     else:  # 900
@@ -649,11 +650,6 @@ def run_sender(cfg, cid, source, codes):
             else:
                 rows.append(row)
 
-    for m in otp_msgs:
-        codes.append({"sender": source,
-                      "date": datetime.datetime.fromtimestamp(m["ts"] / 1000, VLAT)
-                      .isoformat(timespec="seconds"),
-                      "text": m["data"].strip()})
     for r in rows:
         if r.get("op_type") == "otp":
             codes.append({"sender": source,
@@ -662,7 +658,7 @@ def run_sender(cfg, cid, source, codes):
                           "text": r["text"].strip()})
 
     all_rows = rows + [unparsed_row(m) for m in unparsed]
-    entry["newFound"] = len(all_rows) + len(otp_msgs)
+    entry["newFound"] = len(all_rows)
     unique, text_to_mids = fold_twins(all_rows)
     for r in unique:
         if r.get("op_type") == "unparsed":
@@ -674,7 +670,7 @@ def run_sender(cfg, cid, source, codes):
         lambda r: fields_txn(r, source), check_amount=True)
     entry["rowsWritten"] = written
 
-    del_msgs = list(otp_msgs)  # 0321 OTPs: deleted WITHOUT any Grist row
+    del_msgs = []
     for text, mids in text_to_mids.items():
         if any(mid in verified for mid in mids):
             del_msgs.extend(by_mid[mid] for mid in mids if mid in by_mid)
