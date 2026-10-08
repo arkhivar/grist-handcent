@@ -46,3 +46,6 @@ jobs:
           sync_cid: ${{ github.event_name == 'repository_dispatch' && (github.event.client_payload.cid || 'all') || (github.event_name == 'workflow_dispatch' && inputs.cid || 'all') }}
           handcent_auth: ${{ secrets.HANDCENT_AUTH }}
           grist_key: ${{ secrets.GRIST_API_KEY }}
+          # Target table id — set a repo Variable named GRIST_TABLE to override
+          # without a code change; engine default is "Transactions".
+          grist_table: ${{ vars.GRIST_TABLE || 'Transactions' }}
