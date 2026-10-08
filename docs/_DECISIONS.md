@@ -85,15 +85,14 @@ migration checksum — and prune fields in the same pass: `direction` removed (o
 carries the info), `card` reserved for manual assignment (engine must not write it),
 `doc_date` retired (data moved to the payment-side `Date`), `via` merged into
 `source`, `notes2` dropped (always empty), `text` merged into `notes`, `date2`
-renamed to `datetime`. The engine re-pointed via its single module constant. New bank
-rows leave `Date` empty, pending a decision on whether the engine should fill it from
-parsed doc dates.
+renamed to `datetime`. New bank rows leave `Date` empty, pending a decision on
+whether the engine should fill it from parsed doc dates.
 **Consequences:** one live payment ledger (only the 19-row `Income` archive remains;
 Expenses/T900/the pre-merge Transactions/Transactions2 deleted). Engine row schema is
 now exactly `{datetime, notes, mid, source, op_type}` + parsed-only `{amount,
 counterparty, balance_after, doc_number, account_from, account_to}`. The ledger was
-later renamed `Transactions` (2026-10-06, decision #12) — re-pointing the engine is a
-one-line change. Live run 2026-10-02 verified end-to-end (all writes "VERIFY OK").
+later renamed `Transactions` (2026-10-06, decision #12). Live run 2026-10-02 verified
+end-to-end (all writes "VERIFY OK").
 
 ## 10. `Date`/`Paid` retired — `datetime` and `amount` are the single source of truth (2026-10-02)
 **Context:** after the merge, the ledger had two date-ish columns (`Date` for payment
@@ -143,7 +142,23 @@ write — no message was lost: ~21 queued messages simply stayed on the phone.
 morning, all writes read back "VERIFY OK", then deleted from the phone — decision #1
 absorbed a full table rename with zero data loss, exactly as designed. Lesson
 recorded: renaming the table must re-point the engine the same day (or be accepted as
-a quiet period during which messages queue on the phone). A "rename handshake" — the
-engine reading the table id from a GitHub Variable or a small config record instead of
-a hardcoded constant — is now on the roadmap so future renames don't silently break
-cloud runs.
+a quiet period during which messages queue on the phone). The "rename handshake" gap
+noted here — reading the table id from configuration instead of a hardcoded constant —
+was implemented the same day (decision #13).
+
+## 13. Table id is env-driven: `GRIST_TABLE` (2026-10-09)
+**Context:** decision #12 exposed the fragility of a hardcoded table id: a user-side
+rename silently broke every write until the code was patched, and the cloud workflow
+would have kept running the stale constant between the rename and the fix.
+**Decision:** the engine's `TABLE` is now `os.environ.get("GRIST_TABLE") or
+"Transactions"` — a default plus an env override, no code change needed to re-point.
+The Actions workflow passes `vars.GRIST_TABLE` (repo Variable) through the
+`sms-sync-run` composite step as `GRIST_TABLE`; if the variable is unset, the
+`Transactions` default applies. Commit `97ba1af`.
+**Consequences:** the next rename is a single Variable edit (Settings → Secrets and
+variables → Actions → Variables), effective on the very next run, with no silent
+breakage window in the cloud. The local Kimi Work automation keeps working unchanged
+via the default (or an optional `GRIST_TABLE` env var). Residual caveat: between the
+rename and the Variable edit, messages still queue on the phone — the write→verify→
+delete invariant (decision #1) keeps that safe, but editing the variable promptly
+remains the user's part of the handshake.
