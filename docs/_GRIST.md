@@ -59,8 +59,11 @@ deleted them.
   this network.
 - `GET /records?limit=N` **is** honored; `offset` is **ignored** (returns the first
   page). No gt/gte filters — exact-match lists only.
-- **POST body ceiling ~25KB**: ~25-row record batches die at ~23s with nothing
-  inserted. **Use 10-row batches** (<1s each).
+- **POST body ceiling ~25KB** (observed 2026-09-28 with the old migration writer):
+  oversized batches died at ~23s with nothing inserted. The current engine's
+  `WRITE_BATCH` is 25 rows and has been live-proven on this instance since
+  2026-10 (10-row batches were the original conservative workaround). Don't raise
+  the batch size without re-probing, and verify counts after every write batch.
 - Large `/records` full-table reads stall — use **60–90s timeouts**. Dedup/verify via
   `filter={"mid":[...]}` in **chunks of 8**.
 - Records-delete endpoint exists and takes a plain array of rowids.
