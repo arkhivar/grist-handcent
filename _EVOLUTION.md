@@ -72,9 +72,8 @@
 - Engine re-pointed to RevenueBase (one module constant) and live-verified end-to-end
   on 2026-10-02: 900 → 2 scanned / 2 rows / 2 deleted; 0321 → 2 scanned / 1 row
   (1 OTP purged) / 2 deleted; every write read back "VERIFY OK".
-- Archives reduced to `Income` (19 rows) — Expenses, T900, Transactions and
-  Transactions2 are gone. A table rename by the user is still coming; the engine
-  re-point is one line.
+- Archives reduced to `Income` (19 rows) — Expenses, T900, the pre-merge Transactions
+  and Transactions2 are gone.
 
 ### October 8 — event-driven cloud sync
 - The engine moved to GitHub Actions: phone-side Tasker/MacroDroid POSTs a
@@ -87,6 +86,16 @@
 - One manual activation step: the workflow ships at `workflows/sms-sync.yml` (the MCP
   gateway won't write `.github/workflows/`); move it there to activate.
 
+### October 9 — the rename that broke the engine (softly)
+- The user had renamed the unified ledger `RevenueBase` → `Transactions` on
+  2026-10-06; since this Grist instance has no rename endpoint, the table **id**
+  changed and the engine's hardcoded `TABLE` constant silently broke all writes.
+- Discovered today; the engine was re-pointed in a one-line change. The write →
+  read-back → verify → then-delete invariant did its job: ~21 messages (11×0321 +
+  10×900) had simply queued on the phone, and all were synced that morning — every
+  write "VERIFY OK", then deleted. The cloud Actions runs pick up the fix from the
+  repo automatically. See decision #12 in `_DECISIONS.md`.
+
 ## Where the pieces live
 
 | Piece | Location |
@@ -95,5 +104,5 @@
 | Actions entry (`runner.py`) + workflow | this repo (`workflows/sms-sync.yml` → move to `.github/workflows/` to activate) |
 | API history & rituals | `handcent-sms-dedup` skill (local Kimi Work skills dir) |
 | Operations console | Kimi Work widget "SMS → Grist bridge" on the Daily Finance canvas |
-| Data | Grist doc `tRknrJrfbW3L`, table `RevenueBase` (unified ledger; `Income` is the only archive) |
+| Data | Grist doc `tRknrJrfbW3L`, table `Transactions` (unified ledger, renamed from `RevenueBase` on 2026-10-06; `Income` is the only archive) |
 | Design system for future Grist widgets | [arkhivar/grist](https://github.com/arkhivar/grist) (`shared/base.css`, `shared/core.js`, `AGENTS.md`) |
