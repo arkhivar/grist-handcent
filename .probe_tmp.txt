@@ -1,1 +1,1 @@
-test: probing expression syntax handling
+SYNC_CID: ${{ github.event.client_payload.cid || 'all' }}
