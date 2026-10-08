@@ -5,12 +5,16 @@ refer to Grist *pages* — verify which table a page shows via schema, not URL).
 
 ## Tables
 
-### `RevenueBase` — the single unified ledger (since 2026-10-02)
-The old `Transactions` table was merged into `RevenueBase`, which is now the one
-live payment ledger and the sync engine's only write target: 1,977+ rows =
-1,187 manual payment rows + 790 bank rows. (The user intends to rename the table
-later; the engine references it via a single module constant, so a rename is a
-one-line re-point.)
+### `Transactions` — the single unified ledger (merged 2026-10-02, renamed from `RevenueBase` 2026-10-06)
+The pre-merge sender-mirror tables were folded into one unified ledger, created
+2026-10-02 under the table id `RevenueBase` (1,977+ rows = 1,187 manual payment rows
++ 790 bank rows). On 2026-10-06 the user renamed that table to `Transactions` — on
+this Grist instance there is no rename endpoint, so renaming **changes the table id
+itself**, and the engine's hardcoded id silently broke all writes until re-pointed
+(fixed 2026-10-09; see decision #12 in `_DECISIONS.md`). `Transactions` is now the
+one live payment ledger and the sync engine's only write target. The engine
+references it via a single module constant (`TABLE` in `sms_grist_sync.py`) — any
+future rename must re-point the engine the same day.
 
 | Group | Columns |
 |---|---|
@@ -39,14 +43,16 @@ The phone inbox is expected to be empty; if it isn't, something's wrong.
 
 ### Archive (kept intact, do not write)
 `Income` (19 rows) is the only remaining archive table. The old `Expenses`, `T900`,
-`Transactions` and `Transactions2` tables no longer exist — the user deleted them.
+pre-merge `Transactions` and `Transactions2` tables no longer exist — the user
+deleted them.
 
 ## Server quirks (probed 2026-09-28 — this Grist instance is *not* stock)
 
 - **No table rename or delete endpoints** (`POST /tables/{id}/rename` → 404). Schema
-  changes go through table-create + per-column `PATCH`.
+  changes go through table-create + per-column `PATCH`. (The 2026-10-06 "rename" was
+  done in the Grist UI and produced a **new table id**; nothing was renamed in place.)
 - **SQL endpoint works**: `POST /sql` is the reliable way to count rows
-  (`SELECT count(*) FROM RevenueBase WHERE source='900'`), and the only sane way on
+  (`SELECT count(*) FROM Transactions WHERE source='900'`), and the only sane way on
   this network.
 - `GET /records?limit=N` **is** honored; `offset` is **ignored** (returns the first
   page). No gt/gte filters — exact-match lists only.
