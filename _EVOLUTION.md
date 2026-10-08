@@ -95,13 +95,18 @@
   10×900) had simply queued on the phone, and all were synced that morning — every
   write "VERIFY OK", then deleted. The cloud Actions runs pick up the fix from the
   repo automatically. See decision #12 in `_DECISIONS.md`.
+- Same-day follow-up: the table id is no longer hardcoded — the engine reads
+  `GRIST_TABLE` from the environment (Actions passes the repo Variable of the same
+  name; default `Transactions`). Next rename = one Variable edit. The updated
+  workflow line ships staged at `workflows/sms-sync.yml` and needs a manual re-copy
+  into `.github/workflows/`. See decision #13.
 
 ## Where the pieces live
 
 | Piece | Location |
 |---|---|
 | Canonical sync engine (`sms_grist_sync.py`) | this repo (to be imported — deployed copy lives in the Kimi Work automation assets) |
-| Actions entry (`runner.py`) + workflow | this repo (`workflows/sms-sync.yml` → move to `.github/workflows/` to activate) |
+| Actions entry (`runner.py`) + workflow | this repo (`workflows/sms-sync.yml` stages changes; `.github/workflows/sms-sync.yml` is the live copy the user maintains) |
 | API history & rituals | `handcent-sms-dedup` skill (local Kimi Work skills dir) |
 | Operations console | Kimi Work widget "SMS → Grist bridge" on the Daily Finance canvas |
 | Data | Grist doc `tRknrJrfbW3L`, table `Transactions` (unified ledger, renamed from `RevenueBase` on 2026-10-06; `Income` is the only archive) |
