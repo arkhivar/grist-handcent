@@ -1,0 +1,37 @@
+name: sms-sync-run
+description: >-
+  Runs the SMS -> Grist engine with the given credentials and uploads the
+  engine's artifact JSON (per-sender counters and log tail only — the engine
+  never writes credential values anywhere). Secrets arrive as action inputs,
+  are masked in the log, and never enter the artifact.
+inputs:
+  sync_cid:
+    description: "Conversation: 276 / 277 / 0321 / 900 / all"
+    required: true
+  handcent_auth:
+    description: "Full JSON contents of auth-headers.json (Handcent JWT etc.)"
+    required: true
+  grist_key:
+    description: "Grist API key"
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Run sync
+      shell: bash
+      env:
+        SYNC_CID: ${{ inputs.sync_cid }}
+        HANDCENT_AUTH: ${{ inputs.handcent_auth }}
+        GRIST_API_KEY: ${{ inputs.grist_key }}
+      run: |
+        echo "::add-mask::${HANDCENT_AUTH}"
+        echo "::add-mask::${GRIST_API_KEY}"
+        python runner.py | tee artifact.json
+
+    - name: Upload artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: sms-sync-artifact
+        path: artifact.json
+        retention-days: 30
