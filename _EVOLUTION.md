@@ -100,6 +100,11 @@
   name; default `Transactions`). Next rename = one Variable edit. The updated
   workflow line ships staged at `workflows/sms-sync.yml` and needs a manual re-copy
   into `.github/workflows/`. See decision #13.
+- Also today: with the dashboard being de-emphasized, Grist became the sole review
+  surface — so 0321 code messages joined the ledger too. They are written as
+  `op_type="otp"` rows (the same 5 base keys as unparsed rows) and deleted only
+  after read-back verification, like everything else. The last delete-without-row
+  exemption is gone: no message class bypasses the ledger anymore. See decision #14.
 
 ## Where the pieces live
 
