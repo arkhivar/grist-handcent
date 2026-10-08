@@ -19,5 +19,8 @@ Pending ideas and improvements, in no particular order:
 - **Reconcile the `f900-unsent.json` backlog**: ~10 legacy mids were never
   written to any Grist table; decide whether to migrate or drop them, then
   delete the file.
-- **Table rename**: `RevenueBase` gets its final name; engine re-point is a
-  one-line change (module constant).
+- **Rename handshake**: the engine could read the target table id from a
+  GitHub Variable (or a small config record) instead of a hardcoded
+  constant, so future renames don't silently break cloud runs (the
+  2026-10-06 `RevenueBase` → `Transactions` rename broke all writes until
+  the engine was re-pointed — see decision #12).
