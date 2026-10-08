@@ -12,9 +12,9 @@ The pre-merge sender-mirror tables were folded into one unified ledger, created
 this Grist instance there is no rename endpoint, so renaming **changes the table id
 itself**, and the engine's hardcoded id silently broke all writes until re-pointed
 (fixed 2026-10-09; see decision #12 in `_DECISIONS.md`). `Transactions` is now the
-one live payment ledger and the sync engine's only write target. The engine
-references it via a single module constant (`TABLE` in `sms_grist_sync.py`) — any
-future rename must re-point the engine the same day.
+one live payment ledger and the sync engine's only write target. The engine reads
+the table id from the `GRIST_TABLE` env var and defaults to `Transactions` — future
+renames are a Variable edit, no code change (decision #13).
 
 | Group | Columns |
 |---|---|
