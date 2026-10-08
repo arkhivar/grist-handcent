@@ -22,8 +22,8 @@
    #12/#13 in `_DECISIONS.md`). On this Grist instance renaming changes the id
    itself; there is no rename endpoint.
 6. **Read-back verify** — re-fetch by mids (chunked), assert presence (and amount where
-   applicable). **A message may only be deleted after its row is verified.** The only
-   exception: 0321 OTPs, which are purged without any row.
+   applicable). **A message may only be deleted after its row is verified — no
+   exceptions, no exempt message classes.**
 7. **Delete** — websocket pipe (below), 0.8s frame spacing, fresh token + reconnect per
    batch on any error. Never trust `send()` success.
 8. **Quiet period + rescan** — after any send burst, wait ~4 min (server lags minutes
@@ -69,11 +69,12 @@
   carried by `op_type` semantics; the former `direction` column was removed as
   redundant (2026-10-01).
 - **OTP classifier** (both senders): contains `Не сообщайте код никому`.
-  Rule: **0321 OTPs are deleted WITHOUT a Grist row** (never archived); **900 OTPs get
-  a row** (`op_type="otp"`) so the codes stay glanceable in the widget strip.
-- **unparsed** (zero-inbox): every scanned message that isn't parsed and isn't a
-  0321 OTP gets `{datetime, notes, mid, source, op_type:"unparsed"}` — exactly those
-  5 keys, nothing else. Review in Grist, not on the phone.
+  Rule: **both senders' codes get a row** (`op_type="otp"`, 5 base keys only — same
+  shape as unparsed rows) so the codes stay glanceable in the widget strip. Nothing
+  is purged without a verified row (decision #14, `_DECISIONS.md`).
+- **unparsed** (zero-inbox): every scanned message that isn't parsed gets
+  `{datetime, notes, mid, source, op_type:"unparsed"}` — exactly those 5 keys, nothing
+  else. Review in Grist, not on the phone.
 
 ## Grist writes
 
@@ -86,7 +87,7 @@
   - **Base, written every row**: `datetime`, `notes` (raw SMS text), `mid`, `source`,
     `op_type`.
   - **Parsed bank operations only**: `amount`, `counterparty`, `balance_after`,
-    `doc_number`, `account_from`, `account_to`.
+    `doc_number`, `account_to`, `account_from`.
   - `card`, `doc_date`, `direction`, `text`, `date2`, `notes2`, `via` are **not**
     written anymore — removed or renamed in the 2026-10-01/02 restructure (see
     `_GRIST.md`).
@@ -126,6 +127,7 @@
 Semantics worth knowing:
 - `parseFailures` counts **unparsed rows written** (post twin-fold) — nonzero is normal
   operation under the zero-inbox philosophy, not an error.
+- `rowsWritten` includes code rows (`op_type="otp"`) since 2026-10-09 (decision #14).
 - A run can be runner-`succeeded` while a sender has `ok:false` + `error` (per-sender
   crash isolation). Always read the senders, not just the run status.
 - `pending` = messages in the final rescan (includes arrivals during the run window).
