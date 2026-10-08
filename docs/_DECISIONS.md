@@ -62,7 +62,10 @@ field addition must keep this rule.
 GitHub Actions phase stabilizes; future cloud phase uses a fine-grained PAT scoped to
 this repo, SHA-pinned actions, no PR-triggered workflows.
 **Consequences:** the 5-week refresh stays a deliberate human step (see `_RUNBOOK.md`)
-— the cloud moves the *notification*, not the *responsibility*.
+— the cloud moves the *notification*, not the *responsibility*. *Update 2026-10-09:
+the repo stayed PUBLIC when the Actions phase landed (decision #11) — free minutes and
+secret-free artifacts compensated; actions are pinned to major-version tags, not SHAs
+(see `_SECURITY.md`). The PAT lives in the phone's MacroDroid, scoped to this repo.*
 
 ## 8. Drop `direction`, make `op_type` a single select (2026-10-01)
 **Context:** `direction` (in/out/info) duplicated information already carried by
@@ -121,14 +124,18 @@ files to repo Secrets (`HANDCENT_AUTH`, `GRIST_API_KEY`); `load_config()` now ta
 env vars first, with the file fallback keeping the local Kimi Work automation usable
 as a dev harness/fallback.
 **Consequences:** the PC can sleep. A 15-min `schedule` acts as a safety net until the
-phone trigger proves stable (delete it to save minutes). OTP burst storms are
-debounced by the `sms-sync` concurrency group (serialized runs; GitHub keeps only the
-newest queued) plus a Tasker min-interval. The 5-week Handcent JWT refresh now means
-editing a GitHub secret, not a local file. Watch the Actions minute budget: a full
-run with quiet periods is ~5–9 min; the 15-min schedule alone costs ~500–900
-min/month. One tooling wrinkle: the MCP gateway refuses to write `.github/workflows/`,
-so the workflow ships at `workflows/sms-sync.yml` and is moved into place manually
-(see `_RUNBOOK.md`).
+phone trigger proves stable (delete it to save minutes — moot while the repo is
+public, still worth removing for hygiene). OTP burst storms are debounced by the
+`sms-sync` concurrency group (serialized runs; GitHub keeps only the newest queued)
+plus a Tasker min-interval. The 5-week Handcent JWT refresh now means editing a
+GitHub secret, not a local file. Watch the Actions minute budget if the repo ever
+goes private: a full run with quiet periods is ~5–9 min; the 15-min schedule alone
+would cost ~500–900 min/month. One tooling wrinkle: the MCP gateway refuses to write
+`.github/workflows/`, so the workflow originally shipped at `workflows/sms-sync.yml`
+and was moved into place manually (see `_RUNBOOK.md`). *Update 2026-10-09: the
+workflow now lives in the repo at `.github/workflows/sms-sync.yml` — the staged-copy
+workaround is retired; the gateway still can't write that path, so workflow edits go
+through the GitHub web UI or a local git push.*
 
 ## 12. Table rename = tell the engine first (2026-10-09)
 **Context:** a few days after the merge (2026-10-06) the user renamed the unified
