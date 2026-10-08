@@ -38,12 +38,6 @@ jobs:
         env:
           # dispatch payload cid (fallback all) → workflow input → all
           SYNC_CID: ${{ github.event_name == 'repository_dispatch' && (github.event.client_payload.cid || 'all') || (github.event_name == 'workflow_dispatch' && inputs.cid || 'all') }}
+          HANDCENT_AUTH: ${{ secrets.HANDCENT_AUTH }}
+          GRIST_API_KEY: ${{ secrets.GRIST_API_KEY }}
         run: python runner.py | tee artifact.json
-
-      - name: Upload artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: sms-sync-artifact
-          path: artifact.json
-          retention-days: 30
