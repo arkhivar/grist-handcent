@@ -15,10 +15,12 @@
    twin mids become deletion targets (the bank double-sends every debit).
 4. **Dedup vs Grist** — `GET /records?filter={"mid":[...]}` in chunks of 8 (0.3–0.4s
    between chunks). Never full-table reads.
-5. **Write** — `POST /tables/Transactions/records`, batches of 10 rows (server drops
-   ~25KB POSTs — see `_GRIST.md`). (Table id was `RevenueBase` until the user renamed
-   it on 2026-10-06 — on this Grist instance renaming changes the id itself; see
-   decision #12 in `_DECISIONS.md`.)
+5. **Write** — `POST /tables/<table id>/records`, batches of 10 rows (server drops
+   ~25KB POSTs — see `_GRIST.md`). The table id comes from the `GRIST_TABLE` env var
+   and defaults to `Transactions` (it was hardcoded `RevenueBase` until the
+   2026-10-06 rename broke it and the 2026-10-09 env-driven rework — decisions
+   #12/#13 in `_DECISIONS.md`). On this Grist instance renaming changes the id
+   itself; there is no rename endpoint.
 6. **Read-back verify** — re-fetch by mids (chunked), assert presence (and amount where
    applicable). **A message may only be deleted after its row is verified.** The only
    exception: 0321 OTPs, which are purged without any row.
@@ -77,8 +79,9 @@
 
 - Base: `https://seoffice.getgrist.com/api/docs/tRknrJrfbW3L`; Bearer key from
   `grist_api.txt` (never printed).
-- One table — `Transactions`, the unified ledger (renamed from `RevenueBase` on
-  2026-10-06) — receives everything; `source` = `"0321"`/`"900"` for bank rows.
+- One table — `Transactions` by default, overridable via the `GRIST_TABLE` env var
+  (Actions passes the repo Variable of the same name) — receives everything;
+  `source` = `"0321"`/`"900"` for bank rows.
 - Engine row keys:
   - **Base, written every row**: `datetime`, `notes` (raw SMS text), `mid`, `source`,
     `op_type`.
