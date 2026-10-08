@@ -15,12 +15,13 @@
    twin mids become deletion targets (the bank double-sends every debit).
 4. **Dedup vs Grist** — `GET /records?filter={"mid":[...]}` in chunks of 8 (0.3–0.4s
    between chunks). Never full-table reads.
-5. **Write** — `POST /tables/<table id>/records`, batches of 10 rows (server drops
-   ~25KB POSTs — see `_GRIST.md`). The table id comes from the `GRIST_TABLE` env var
-   and defaults to `Transactions` (it was hardcoded `RevenueBase` until the
-   2026-10-06 rename broke it and the 2026-10-09 env-driven rework — decisions
-   #12/#13 in `_DECISIONS.md`). On this Grist instance renaming changes the id
-   itself; there is no rename endpoint.
+5. **Write** — `POST /tables/<table id>/records`, batches of 25 rows (`WRITE_BATCH`).
+   The table id comes from the `GRIST_TABLE` env var and defaults to `Transactions`
+   (it was hardcoded `RevenueBase` until the 2026-10-06 rename broke it and the
+   2026-10-09 env-driven rework — decisions #12/#13 in `_DECISIONS.md`). On this
+   Grist instance renaming changes the id itself; there is no rename endpoint. The
+   older ~25KB POST-body ceiling that motivated smaller batches is documented in
+   `_GRIST.md` — don't raise the batch size without re-probing.
 6. **Read-back verify** — re-fetch by mids (chunked), assert presence (and amount where
    applicable). **A message may only be deleted after its row is verified — no
    exceptions, no exempt message classes.**
@@ -99,10 +100,17 @@
 
 ## Automation deployment
 
-- Blueprint Automation `automation_112c8e63-0532-432e-9e61-ef8b627db65d`
-  ("SMS → Grist sync"): manual trigger, Python, 15-min timeout, entry
-  `sms_grist_sync.py`; triggered from the "SMS → Grist bridge" widget on the Daily
-  Finance canvas.
+- **PRIMARY (since 2026-10-08, decision #11): GitHub Actions** —
+  `.github/workflows/sms-sync.yml` (phone-triggered `repository_dispatch` +
+  `workflow_dispatch` + a `*/15` cron safety net; concurrency group `sms-sync`).
+  The run+upload step is the composite action `.github/actions/sms-sync-run/action.yml`,
+  which passes `HANDCENT_AUTH` / `GRIST_API_KEY` secrets and the `GRIST_TABLE`
+  Variable. Workflow edits can't be pushed by the MCP gateway (it refuses
+  `.github/workflows/`) — use the GitHub web UI or a local git push. See `_RUNBOOK.md`.
+- **SECONDARY: Kimi Work Blueprint Automation**
+  `automation_112c8e63-0532-432e-9e61-ef8b627db65d` ("SMS → Grist sync"): manual
+  trigger, Python, 15-min timeout, entry `sms_grist_sync.py`; triggered from the
+  "SMS → Grist bridge" widget on the Daily Finance canvas. Dev harness/fallback.
 - Live verification 2026-10-02 against the unified ledger (then id `RevenueBase`,
   now `Transactions`): 900 → 2 scanned / 2 rows / 2 deleted; 0321 → 2 scanned /
   1 row (1 OTP purged) / 2 deleted; all writes "VERIFY OK".
