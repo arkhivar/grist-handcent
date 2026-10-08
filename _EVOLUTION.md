@@ -76,11 +76,23 @@
   Transactions2 are gone. A table rename by the user is still coming; the engine
   re-point is one line.
 
+### October 8 — event-driven cloud sync
+- The engine moved to GitHub Actions: phone-side Tasker/MacroDroid POSTs a
+  `repository_dispatch` on incoming SMS; Actions runs the same verified engine
+  (`runner.py` + `sms_grist_sync.py`, run/upload step in `.github/actions/sms-sync-run`)
+  with secrets in repo Secrets. A 15-min schedule is the safety net while the phone
+  trigger is proven (it costs Actions minutes; delete once stable).
+- Secret resolution flipped: env vars first, local files as fallback — the Kimi Work
+  automation remains the dev harness/fallback. See decision #11 in `_DECISIONS.md`.
+- One manual activation step: the workflow ships at `workflows/sms-sync.yml` (the MCP
+  gateway won't write `.github/workflows/`); move it there to activate.
+
 ## Where the pieces live
 
 | Piece | Location |
 |---|---|
 | Canonical sync engine (`sms_grist_sync.py`) | this repo (to be imported — deployed copy lives in the Kimi Work automation assets) |
+| Actions entry (`runner.py`) + workflow | this repo (`workflows/sms-sync.yml` → move to `.github/workflows/` to activate) |
 | API history & rituals | `handcent-sms-dedup` skill (local Kimi Work skills dir) |
 | Operations console | Kimi Work widget "SMS → Grist bridge" on the Daily Finance canvas |
 | Data | Grist doc `tRknrJrfbW3L`, table `RevenueBase` (unified ledger; `Income` is the only archive) |
