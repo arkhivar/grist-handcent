@@ -25,7 +25,8 @@ glanceable at the machine.
 **Decision:** 0321 OTPs are deleted **without** a Grist row (never archived). 900 OTPs
 get a row (`op_type="otp"`) so they flow into the widget's Latest codes strip.
 **Consequences:** purge-by-rule stays; archive stays complete; the codes strip is a
-real feature, not a mock.
+real feature, not a mock. *Reversed in part by #14 (2026-10-09): 0321 codes now get
+rows like everything else; the 900 arm stands unchanged.*
 
 ## 4. Single `Transactions` table with `source` (2026-09-28)
 **Context:** three tables (Expenses/Income/T900) mirrored sender structure the user no
@@ -162,3 +163,20 @@ via the default (or an optional `GRIST_TABLE` env var). Residual caveat: between
 rename and the Variable edit, messages still queue on the phone — the write→verify→
 delete invariant (decision #1) keeps that safe, but editing the variable promptly
 remains the user's part of the handshake.
+
+## 14. 0321 codes become verified Grist rows — zero-inbox absolute (2026-10-09)
+**Context:** the user is cutting the dashboard dependency: Grist is to be the sole
+review surface, and a whole class of messages that bypassed the ledger (0321 OTPs,
+deleted without a row per decision #3) could never be reviewed, searched, or audited
+there.
+**Decision:** 0321 code messages now go through the same write → read-back verify →
+delete path as everything else, becoming rows with the same 5 base keys as unparsed
+rows and `op_type="otp"` — reversing the 0321 arm of decision #3 (the 900 arm is
+unchanged; 900 codes already wrote rows). The OTP-purge path (delete-without-row) is
+removed from the engine entirely; twin-fold still folds identical code texts to one
+row (newest mid wins, both mids deleted). Commit `1bfa393`.
+**Consequences:** decision #1's invariant (nothing is deleted without a verified row)
+now covers literally every scanned message — no exempt class remains.
+`rowsWritten` counts code rows too (expected, cosmetic); `parseFailures` still counts
+only `unparsed` rows. `latestCodes` population is unchanged — the codes strip keeps
+working, now fed from ledger rows instead of a side channel.
