@@ -14,6 +14,10 @@ inputs:
   grist_key:
     description: "Grist API key"
     required: true
+  grist_table:
+    description: "Grist table id to write (engine default: Transactions)"
+    required: false
+    default: "Transactions"
 runs:
   using: composite
   steps:
@@ -23,6 +27,7 @@ runs:
         SYNC_CID: ${{ inputs.sync_cid }}
         HANDCENT_AUTH: ${{ inputs.handcent_auth }}
         GRIST_API_KEY: ${{ inputs.grist_key }}
+        GRIST_TABLE: ${{ inputs.grist_table }}
       run: |
         echo "::add-mask::${HANDCENT_AUTH}"
         echo "::add-mask::${GRIST_API_KEY}"
