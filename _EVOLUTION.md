@@ -83,8 +83,10 @@
   trigger is proven (it costs Actions minutes; delete once stable).
 - Secret resolution flipped: env vars first, local files as fallback — the Kimi Work
   automation remains the dev harness/fallback. See decision #11 in `_DECISIONS.md`.
-- One manual activation step: the workflow ships at `workflows/sms-sync.yml` (the MCP
-  gateway won't write `.github/workflows/`); move it there to activate.
+- Activation wrinkle: the MCP gateway won't write `.github/workflows/`, so the workflow
+  had to be moved into place manually. Done — the live workflow is now in the repo at
+  `.github/workflows/sms-sync.yml` (the staged `workflows/sms-sync.yml` copy is retired).
+  Future workflow edits go through the GitHub web UI or a local git push.
 
 ### October 9 — the rename that broke the engine (softly)
 - The user had renamed the unified ledger `RevenueBase` → `Transactions` on
@@ -97,9 +99,8 @@
   repo automatically. See decision #12 in `_DECISIONS.md`.
 - Same-day follow-up: the table id is no longer hardcoded — the engine reads
   `GRIST_TABLE` from the environment (Actions passes the repo Variable of the same
-  name; default `Transactions`). Next rename = one Variable edit. The updated
-  workflow line ships staged at `workflows/sms-sync.yml` and needs a manual re-copy
-  into `.github/workflows/`. See decision #13.
+  name; default `Transactions`). Next rename = one Variable edit. The `GRIST_TABLE`
+  workflow line was applied in the repo workflow itself. See decision #13.
 - Also today: with the dashboard being de-emphasized, Grist became the sole review
   surface — so 0321 code messages joined the ledger too. They are written as
   `op_type="otp"` rows (the same 5 base keys as unparsed rows) and deleted only
@@ -111,8 +112,8 @@
 | Piece | Location |
 |---|---|
 | Canonical sync engine (`sms_grist_sync.py`) | this repo (to be imported — deployed copy lives in the Kimi Work automation assets) |
-| Actions entry (`runner.py`) + workflow | this repo (`workflows/sms-sync.yml` stages changes; `.github/workflows/sms-sync.yml` is the live copy the user maintains) |
+| Actions entry (`runner.py`) + workflow | this repo: `runner.py` deploys normally; the live workflow is `.github/workflows/sms-sync.yml` (the MCP gateway can't write that path — edit it via the GitHub web UI or a local git push; the old `workflows/sms-sync.yml` staging copy is retired) |
 | API history & rituals | `handcent-sms-dedup` skill (local Kimi Work skills dir) |
-| Operations console | Kimi Work widget "SMS → Grist bridge" on the Daily Finance canvas |
+| Operations console | Kimi Work widget "SMS → Grist bridge" on the Daily Finance canvas (secondary/manual); GitHub Actions is the primary executor |
 | Data | Grist doc `tRknrJrfbW3L`, table `Transactions` (unified ledger, renamed from `RevenueBase` on 2026-10-06; `Income` is the only archive) |
 | Design system for future Grist widgets | [arkhivar/grist](https://github.com/arkhivar/grist) (`shared/base.css`, `shared/core.js`, `AGENTS.md`) |
