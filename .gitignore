@@ -1,0 +1,8 @@
+# Secret files — never commit these (see _SECURITY.md)
+auth-headers.json
+grist_api.txt
+
+# Python noise
+__pycache__/
+*.pyc
+artifact.json
