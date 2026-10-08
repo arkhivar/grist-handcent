@@ -26,11 +26,14 @@ Notes:
 - `source` vocabulary: `900`, `0321` (bank senders) · `AVq`, `DSc`, `SBb`, `ALb`
   (manual payment rows).
 - `op_type` is the user's single-select curation axis. Vocabulary: `expense`,
-  `income` (0321 parsed) · `otp` (900 archived codes) · `unparsed` (zero-inbox
-  catch-all) · legacy values from the migrated T900 rows: `purchase`, `purchase_sbp`,
-  `transfer_out`, `transfer_in`, `sbp_in`, `refund`, `payment`, `fee`, `confirm`,
-  `promo`, `declined`, `court_collection`.
-- Unparsed rows carry exactly the 5 base keys with `op_type="unparsed"`.
+  `income` (0321 parsed) · `otp` (archived codes — both senders since 2026-10-09,
+  decision #14) · `unparsed` (zero-inbox catch-all) · legacy values from the
+  migrated T900 rows: `purchase`, `purchase_sbp`, `transfer_out`, `transfer_in`,
+  `sbp_in`, `refund`, `payment`, `fee`, `confirm`, `promo`, `declined`,
+  `court_collection`.
+- Unparsed rows and code rows carry exactly the 5 base keys; `op_type="unparsed"`
+  for the former, `op_type="otp"` for the latter. 0321 codes became rows on
+  2026-10-09 (decision #14) — before that they were deleted without a row.
 - Columns removed in the 2026-10-01/02 restructure — do not reference them anywhere:
   `direction` (in/out/info is carried by `op_type`), `card` (user assigns it
   manually; the engine must NOT write it), `doc_date`, `Date` (both retired —
