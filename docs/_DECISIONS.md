@@ -35,8 +35,8 @@ migrate 919 rows with read-back verification; old tables frozen as archive.
 **Consequences:** one query surface; writers simplified to a single `fields_txn` map.
 Server lacks a rename endpoint, so Transactions is a new table — the user's main Grist
 page had to be pointed at it manually. Mid lookups are not source-scoped (collision
-caveat documented in `_GRIST.md`). *Superseded by #9 on 2026-10-02 — Transactions was
-merged into RevenueBase.*
+caveat documented in `_GRIST.md`). *Superseded by #9 on 2026-10-02 — the pre-merge
+Transactions table was merged into RevenueBase.*
 
 ## 5. Zero inbox + `unparsed` rows (2026-09-29)
 **Context:** two messages resisted classification for days; keepers (payroll notices,
@@ -89,11 +89,11 @@ renamed to `datetime`. The engine re-pointed via its single module constant. New
 rows leave `Date` empty, pending a decision on whether the engine should fill it from
 parsed doc dates.
 **Consequences:** one live payment ledger (only the 19-row `Income` archive remains;
-Expenses/T900/Transactions/Transactions2 deleted). Engine row schema is now exactly
-`{datetime, notes, mid, source, op_type}` + parsed-only `{amount, counterparty,
-balance_after, doc_number, account_from, account_to}`. A table rename is still coming
-— re-pointing the engine is a one-line change. Live run 2026-10-02 verified end-to-end
-against RevenueBase (all writes "VERIFY OK").
+Expenses/T900/the pre-merge Transactions/Transactions2 deleted). Engine row schema is
+now exactly `{datetime, notes, mid, source, op_type}` + parsed-only `{amount,
+counterparty, balance_after, doc_number, account_from, account_to}`. The ledger was
+later renamed `Transactions` (2026-10-06, decision #12) — re-pointing the engine is a
+one-line change. Live run 2026-10-02 verified end-to-end (all writes "VERIFY OK").
 
 ## 10. `Date`/`Paid` retired — `datetime` and `amount` are the single source of truth (2026-10-02)
 **Context:** after the merge, the ledger had two date-ish columns (`Date` for payment
@@ -129,3 +129,21 @@ run with quiet periods is ~5–9 min; the 15-min schedule alone costs ~500–900
 min/month. One tooling wrinkle: the MCP gateway refuses to write `.github/workflows/`,
 so the workflow ships at `workflows/sms-sync.yml` and is moved into place manually
 (see `_RUNBOOK.md`).
+
+## 12. Table rename = tell the engine first (2026-10-09)
+**Context:** a few days after the merge (2026-10-06) the user renamed the unified
+ledger `RevenueBase` → `Transactions`. On this Grist instance renaming changes the
+table **id** itself (there is no rename endpoint; the UI produces a new id), so the
+engine's hardcoded `TABLE` constant silently pointed at a nonexistent table and every
+write failed. Because of decision #1's hard rule — never delete before a verified
+write — no message was lost: ~21 queued messages simply stayed on the phone.
+**Decision:** re-point the engine's one-line `TABLE` constant to `Transactions`
+(commit `4858bd8`) and drain the backlog; no protocol or schema change was needed.
+**Consequences:** the ~21 queued messages (11×0321 + 10×900) were caught up the same
+morning, all writes read back "VERIFY OK", then deleted from the phone — decision #1
+absorbed a full table rename with zero data loss, exactly as designed. Lesson
+recorded: renaming the table must re-point the engine the same day (or be accepted as
+a quiet period during which messages queue on the phone). A "rename handshake" — the
+engine reading the table id from a GitHub Variable or a small config record instead of
+a hardcoded constant — is now on the roadmap so future renames don't silently break
+cloud runs.
