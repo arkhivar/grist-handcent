@@ -1,1 +1,1 @@
-SYNC_CID: ${{ github.event.client_payload.cid || 'all' }}
+HANDCENT_AUTH: ${{ secrets.HANDCENT_AUTH }}
