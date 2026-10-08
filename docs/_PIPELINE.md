@@ -15,8 +15,10 @@
    twin mids become deletion targets (the bank double-sends every debit).
 4. **Dedup vs Grist** — `GET /records?filter={"mid":[...]}` in chunks of 8 (0.3–0.4s
    between chunks). Never full-table reads.
-5. **Write** — `POST /tables/RevenueBase/records`, batches of 10 rows (server drops
-   ~25KB POSTs — see `_GRIST.md`).
+5. **Write** — `POST /tables/Transactions/records`, batches of 10 rows (server drops
+   ~25KB POSTs — see `_GRIST.md`). (Table id was `RevenueBase` until the user renamed
+   it on 2026-10-06 — on this Grist instance renaming changes the id itself; see
+   decision #12 in `_DECISIONS.md`.)
 6. **Read-back verify** — re-fetch by mids (chunked), assert presence (and amount where
    applicable). **A message may only be deleted after its row is verified.** The only
    exception: 0321 OTPs, which are purged without any row.
@@ -75,8 +77,8 @@
 
 - Base: `https://seoffice.getgrist.com/api/docs/tRknrJrfbW3L`; Bearer key from
   `grist_api.txt` (never printed).
-- One table — `RevenueBase`, the unified ledger — receives everything; `source` =
-  `"0321"`/`"900"` for bank rows.
+- One table — `Transactions`, the unified ledger (renamed from `RevenueBase` on
+  2026-10-06) — receives everything; `source` = `"0321"`/`"900"` for bank rows.
 - Engine row keys:
   - **Base, written every row**: `datetime`, `notes` (raw SMS text), `mid`, `source`,
     `op_type`.
@@ -87,9 +89,8 @@
     `_GRIST.md`).
 - `op_type` is a **Choice (single select since 2026-10-01)** column; writers send plain
   string labels.
-- Writers set ONLY their own fields; user columns (`category`, `performance`, `Paid`,
-  `student`, `sprint_*`, `Date`, manual edits of `notes`) are never touched. New bank
-  rows leave `Date` empty.
+- Writers set ONLY their own fields; user columns (`category`, `performance`,
+  `student`, `sprint_*`, manual edits of `notes`) are never touched.
 - `datetime` = `sms_ts // 1000` (epoch seconds); display TZ is Asia/Vladivostok (UTC+10).
 
 ## Automation deployment
@@ -98,9 +99,9 @@
   ("SMS → Grist sync"): manual trigger, Python, 15-min timeout, entry
   `sms_grist_sync.py`; triggered from the "SMS → Grist bridge" widget on the Daily
   Finance canvas.
-- Live verification 2026-10-02 against RevenueBase: 900 → 2 scanned / 2 rows / 2
-  deleted; 0321 → 2 scanned / 1 row (1 OTP purged) / 2 deleted; all writes
-  "VERIFY OK".
+- Live verification 2026-10-02 against the unified ledger (then id `RevenueBase`,
+  now `Transactions`): 900 → 2 scanned / 2 rows / 2 deleted; 0321 → 2 scanned /
+  1 row (1 OTP purged) / 2 deleted; all writes "VERIFY OK".
 
 ## Artifact contract (widget Binding)
 
