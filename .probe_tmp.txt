@@ -1,6 +1,8 @@
 on:
   repository_dispatch:
     types: [sms-sync]
+  schedule:
+    - cron: "*/15 * * * *"
 
 jobs:
   sync:
