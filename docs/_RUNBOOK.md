@@ -25,15 +25,20 @@ browser session; grabbing it needs the local WebBridge daemon (127.0.0.1:10086).
 ## GitHub Actions phase
 
 The engine also runs on GitHub Actions (`arkhivar/grist-handcent`), triggered
-by the phone — no awake PC required. The workflow ships at `workflows/sms-sync.yml`
-because the MCP gateway refuses to write `.github/workflows/`; **activate it
-manually**: move the file to `.github/workflows/sms-sync.yml` in the GitHub UI
-(or `git mv` + push). The run+upload step it calls lives in
-`.github/actions/sms-sync-run/action.yml` and is already in place.
+by the phone — no awake PC required. The workflow is active at
+`.github/workflows/sms-sync.yml`; because the MCP gateway refuses to write that
+directory, changes to it are staged in `workflows/sms-sync.yml` and must be **re-copied
+manually** into `.github/workflows/` to take effect. The run+upload step it calls lives
+in `.github/actions/sms-sync-run/action.yml` and deploys normally.
 
 - **Repo Secrets** (Settings → Secrets and variables → Actions):
   - `HANDCENT_AUTH` — full contents of `auth-headers.json` (one line, valid JSON).
   - `GRIST_API_KEY` — the Grist API key (contents of `grist_api.txt`).
+- **Target table id**: the engine writes to the `Transactions` table by default. To
+  point it at a different table id **without any code change**, create a repo
+  **Variable** (same Settings page → **Variables** tab): name `GRIST_TABLE`, value =
+  the new table id. The workflow passes it as `GRIST_TABLE` on the next run; no
+  variable → the engine default `Transactions` applies. (Decision #13.)
 - **JWT refresh (~every 5 weeks):** same browser-localStorage ritual as above,
   then update the secret instead of the file:
   `gh secret set HANDCENT_AUTH < auth-headers.json` (run from the repo root).
