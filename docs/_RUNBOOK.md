@@ -18,18 +18,21 @@ browser session; grabbing it needs the local WebBridge daemon (127.0.0.1:10086).
    A fresh JWT's payload carries a **new `res`** — patch BOTH `res` and `token`.
 3. Write both into `auth-headers.json` (every script reads that file; some old scripts
    have stale hardcoded headers — don't copy from them).
-4. When the GitHub Actions phase lands: `gh secret set HANDCENT_AUTH < auth-headers.json`
-   after each refresh.
+4. Push the refreshed headers to GitHub — the cloud path reads them from repo
+   Secrets: `gh secret set HANDCENT_AUTH < auth-headers.json` (run from the repo
+   root). The local Kimi Work path keeps using the file as-is.
 5. WebBridge daemon down (connection refused on :10086)? Restart Kimi Work.
 
 ## GitHub Actions phase
 
-The engine also runs on GitHub Actions (`arkhivar/grist-handcent`), triggered
-by the phone — no awake PC required. The workflow is active at
-`.github/workflows/sms-sync.yml`; because the MCP gateway refuses to write that
-directory, changes to it are staged in `workflows/sms-sync.yml` and must be **re-copied
-manually** into `.github/workflows/` to take effect. The run+upload step it calls lives
-in `.github/actions/sms-sync-run/action.yml` and deploys normally.
+The engine's PRIMARY executor is GitHub Actions (`arkhivar/grist-handcent`),
+triggered by the phone — no awake PC required. The live workflow is in the repo at
+`.github/workflows/sms-sync.yml`; the automation tooling that maintains this repo
+(MCP gateway) refuses to write under `.github/workflows/`, so workflow changes are
+made in the GitHub web UI (or via a local git push), not through the gateway. The old
+staged-copy workaround (`workflows/sms-sync.yml` re-copied by hand) is retired — the
+staged file no longer exists. The run+upload step the workflow calls lives in
+`.github/actions/sms-sync-run/action.yml` and deploys normally.
 
 - **Repo Secrets** (Settings → Secrets and variables → Actions):
   - `HANDCENT_AUTH` — full contents of `auth-headers.json` (one line, valid JSON).
@@ -50,8 +53,8 @@ in `.github/actions/sms-sync-run/action.yml` and deploys normally.
   (per-sender counters, latest codes, log tail — never credentials) is attached
   as the `sms-sync-artifact` download.
 - **Safety net:** a 15-min `schedule` run exists while the phone-side trigger is
-  being proven; it burns Actions minutes (~500–900 min/month) — delete the
-  `schedule` block in the workflow once dispatch is stable.
+  being proven; on a public repo the minutes are free, but delete the `schedule`
+  block once dispatch is stable (hygiene).
 
 ## Widget states — how to read them
 
