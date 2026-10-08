@@ -108,3 +108,24 @@ columns) and an empty-inbox live run completed cleanly.
 seconds), `amount` the sole money column. The pending "should the engine fill `Date`?"
 question from #9 is moot. User-owned columns the engine must not touch are now:
 `category`, `performance`, `student`, `sprint_*`, plus manual edits of `notes`.
+
+## 11. Event-driven cloud sync on GitHub Actions (2026-10-08)
+**Context:** the manual widget button was the only trigger — the engine could only run
+while the Kimi Work host PC was awake. The user wants zero-touch sync (PC asleep is
+fine).
+**Decision:** the phone itself triggers the run: Tasker/MacroDroid fires on an
+SMS-received broadcast and POSTs `repository_dispatch` (type `sms-sync`, optional
+cid) to this repo; GitHub Actions runs the same engine (`sms_grist_sync.py` + thin
+`runner.py`, wired via `.github/actions/sms-sync-run`). Secrets moved from local
+files to repo Secrets (`HANDCENT_AUTH`, `GRIST_API_KEY`); `load_config()` now takes
+env vars first, with the file fallback keeping the local Kimi Work automation usable
+as a dev harness/fallback.
+**Consequences:** the PC can sleep. A 15-min `schedule` acts as a safety net until the
+phone trigger proves stable (delete it to save minutes). OTP burst storms are
+debounced by the `sms-sync` concurrency group (serialized runs; GitHub keeps only the
+newest queued) plus a Tasker min-interval. The 5-week Handcent JWT refresh now means
+editing a GitHub secret, not a local file. Watch the Actions minute budget: a full
+run with quiet periods is ~5–9 min; the 15-min schedule alone costs ~500–900
+min/month. One tooling wrinkle: the MCP gateway refuses to write `.github/workflows/`,
+so the workflow ships at `workflows/sms-sync.yml` and is moved into place manually
+(see `_RUNBOOK.md`).
