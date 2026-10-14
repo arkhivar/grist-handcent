@@ -12,25 +12,29 @@ every message gets a row — parsed, unparseable, and codes from both senders
 (since 2026-10-09 / decision #14). Nothing is deleted without a verified row
 (decision #1, the load-bearing invariant).
 
-**Prepared change (2026-10-14, decision #15):** this checkout uses signed
+**Signed amounts deployed (2026-10-14, decision #15):** Actions runs engine
+commit `d98cd6d` with signed
 `amount`: outgoing money is negative, incoming money is positive, and
 informational messages have a blank amount. `op_type` remains an internal
-parser label and is omitted from Grist writes. Deployment, existing-row
-migration, and removal of the live `op_type` column are still pending; the
-scheduled Actions executor must receive the new writer before the schema
-changes. See the rollout procedure in `docs/_RUNBOOK.md`.
+parser label and is omitted from Grist writes. Migration verified 810 bank
+rows, made 770 debit amounts negative, and cleared two confirmation amounts;
+the curated magnitude difference was preserved. The Grist `op_type` column
+was removed after verification and the Actions workflow was re-enabled.
+See the rollout record in `docs/_RUNBOOK.md`.
 
-**Where it runs — one engine, two executors:**
+**Where it runs:**
 - **PRIMARY: GitHub Actions** — `.github/workflows/sms-sync.yml`. Triggered by
   a MacroDroid macro on the phone (SMS received → `repository_dispatch` type
   `sms-sync`), by `workflow_dispatch` (manual), and by a `*/15` cron safety
   net that is marked for deletion once the phone trigger proves stable.
   Concurrency group `sms-sync`; secrets + `GRIST_TABLE` flow through the
   composite action `.github/actions/sms-sync-run/action.yml`.
-- **SECONDARY: Kimi Work Blueprint Automation**
+- **HISTORICAL FALLBACK: Kimi Work Blueprint Automation**
   `automation_112c8e63-0532-432e-9e61-ef8b627db65d` — manual trigger from the
-  "SMS → Grist bridge" widget on the Daily Finance canvas. Dev harness /
-  fallback; same engine file.
+  "SMS → Grist bridge" widget on the Daily Finance canvas. This fallback
+  was unavailable during rollout and its assets were not upgraded. Before
+  reuse, deploy and verify the same engine as Actions; its old writer still
+  expects `op_type` and unsigned amounts.
 
 **Secrets:**
 - GitHub repo Secrets: `HANDCENT_AUTH` (Handcent JWT), `GRIST_API_KEY`; repo
@@ -43,13 +47,13 @@ changes. See the rollout procedure in `docs/_RUNBOOK.md`.
   localStorage ritual, then `gh secret set HANDCENT_AUTH < auth-headers.json`.
   Never print or commit secret values. Details: `_RUNBOOK.md`, `_SECURITY.md`.
 
-**Grist schema:** one table, id `Transactions`. The prepared writer sends
+**Grist schema:** one table, id `Transactions`. The writer sends
 base `{datetime (epoch s), notes (raw SMS text), mid, source}` + parsed-only
 `{amount, counterparty, balance_after, doc_number, account_from, account_to}`.
 It never updates existing user fields (`category`, `performance`, `student`,
-`sprint_*`, manual `notes` edits). The 2026-10-14 schema read still found an
-`op_type` Text column and `amount` Numeric; the live column and historical
-amounts await migration. Full schema and sign mapping: `docs/_GRIST.md`.
+`sprint_*`, manual `notes` edits). `amount` is Numeric; the legacy `op_type`
+Text column was removed on 2026-10-14. Full schema and sign mapping:
+`docs/_GRIST.md`.
 
 **How to change things safely:**
 - Engine change: edit `sms_grist_sync.py`, run the repository's synthetic
@@ -58,8 +62,9 @@ amounts await migration. Full schema and sign mapping: `docs/_GRIST.md`.
   do not claim it passed. Deploy the same engine to each executor before
   changing its Grist schema. Pushing the engine updates Actions; the
   secondary Kimi Work automation needs its own asset update.
-- Manual run: Actions tab → "SMS → Grist sync" → Run workflow (cid optional),
-  or the widget button for the local path.
+- Manual run, only when explicitly requested: Actions tab → "SMS → Grist sync"
+  → Run workflow (cid optional). The Kimi widget path requires its asset upgrade
+  before reuse.
 - Re-point the table after a Grist rename: edit the `GRIST_TABLE` repo
   Variable — no code change (decision #13). On this Grist instance renaming
   changes the table **id** itself; until the Variable is edited, messages

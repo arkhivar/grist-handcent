@@ -21,32 +21,48 @@ past validation, not a runnable current test suite. Importing or compiling the
 engine does not contact services. Calling `run()` or `runner.py` starts live
 synchronization and requires an explicit user request.
 
-## Signed-amount rollout (prepared 2026-10-14; pending)
+## Signed-amount rollout (completed 2026-10-14)
 
-The local engine now uses negative outgoing amounts, positive incoming amounts,
+Actions engine `d98cd6d` uses negative outgoing amounts, positive incoming amounts,
 and blank amounts for confirmation requests, declines, codes, promos, and
-unparsed messages. It keeps `op_type` only as an internal parser label. Existing
-Grist data and schema have not been changed, and deployment is pending.
+unparsed messages. It keeps `op_type` only as an internal parser label.
 
 Validation on 2026-10-14: 49 synthetic offline tests passed. A separate live API
 check wrote and read back seven synthetic rows in a temporary table without an
 `op_type` column; positive, negative, and blank amounts matched. The temporary
-table was removed, and no phone synchronization was run. The read-only plan
-covered 810 bank rows: 770 debit sign changes and two confirmation amounts to
-clear, with no unresolved rows. One inferred expense has a stored magnitude
-different from its SMS; the plan preserves the stored magnitude and flags the
-difference. Counts must be refreshed if data changes before rollout.
+table was removed, and no manual phone synchronization was run.
+
+Rollout: engine commit `d98cd6d` was deployed to `main` and the deployed source
+verified against the local engine. Workflow `378205456` was paused and old runs
+finished before migration. The amount-only migration changed 772 amounts:
+770 debits became negative and two confirmation amounts became blank. Final
+read-back verified all 810 bank rows with no unresolved rows. One inferred
+expense had a stored magnitude different from its SMS; that curated magnitude
+was preserved. Manual payment rows, notes, and user-managed fields were untouched.
+Hashes of the protected fields matched for all 810 bank rows before and after
+column removal. Final amounts: 770 negative, 28 positive, and 12 blank.
+The `op_type` column was removed after verification, and the Actions workflow
+was restored to active status.
+
+The Kimi fallback was unavailable during rollout and its assets were not upgraded.
+Before reuse, deploy and verify the same engine as Actions; the old fallback still
+expects the removed column and unsigned amounts.
 
 The configured document id `tRknrJrfbW3L` is the same development document
 targeted by active scheduled SMS automation. Its observed name is
-`sandbox(copy)` and the supplied access is editor-level. The user confirmed
-that SeaTable is production and this Grist document is development; scheduled
-Grist writers still need coordinated rollout. A schema read on 2026-10-14 found
-`amount` Numeric, `op_type` Text, and no formula referencing `op_type`.
+`sandbox (copy)` and the supplied access is editor-level. The user confirmed
+that SeaTable is production and this Grist document is development. The
+pre-migration schema read on 2026-10-14 found `amount` Numeric, `op_type` Text,
+and no formula referencing `op_type`; the latter column has now been removed.
+
+The following one-time procedure records the rollout order. The migration tool
+requires the legacy `op_type` column for classification and schema checks. Do not
+rerun its plan or apply commands against this migrated document; they deliberately
+stop once that column is absent. Retain the private plan as a migration record.
 
 1. Run offline tests and deploy the compatible writer to every active executor
-   first. Actions uses the deployed repository copy; the secondary automation
-   needs the same asset update. Account for active and queued old executions.
+   first. Actions uses the deployed repository copy. An unavailable fallback must
+   receive the same asset update before reuse. Account for active and queued old executions.
    The 15-minute fallback and phone dispatch can otherwise keep running old code.
    Do not delete the column while an old writer still needs it.
 2. Plan the existing-row migration with `tools/migrate_signed_amounts.py`, whose
@@ -67,9 +83,10 @@ Grist writers still need coordinated rollout. A schema read on 2026-10-14 found
    `source` and `notes`. Record the deployed revision and migration result when
    rollout actually happens.
 
-The migration tool reads its key only from `GRIST_API_KEY`. Supply it through
+For this one-time procedure, the migration tool reads its key only from
+`GRIST_API_KEY`. Supply it through
 the local environment without printing it or placing it in a command, document,
-or committed file. To create a read-only plan:
+or committed file. Before column removal, create a read-only plan:
 
 ```powershell
 .venv\Scripts\python.exe tools/migrate_signed_amounts.py --doc-id tRknrJrfbW3L --plan .local/signed-amounts-plan.json
@@ -89,10 +106,10 @@ apply and verify the reviewed plan:
 check Actions for old runs. The tool never drops `op_type`. Remove the column
 separately only after successful migration verification and dependency review.
 
-A row with the old wrong amount sign will fail the prepared sync's verification
-and remain on the phone until the separate migration fixes it. Do not relax the
-verification invariant to drain the inbox. Planning and migration do not authorize
-a live synchronization run.
+A row with a wrong sign or a curated magnitude different from its SMS fails the
+sync's verification and stays on the phone for review. Do not relax the invariant
+or overwrite a curated amount to drain the inbox. Migration and deployment do not
+authorize a manual live synchronization run.
 
 ## Token refresh (the ~5-week ritual)
 

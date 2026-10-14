@@ -210,8 +210,8 @@ distinguishes blank from zero. A mismatch prevents phone deletion; it does not
 overwrite existing fields during normal synchronization. Synthetic repository
 tests replace the unavailable external offline harness for this change.
 
-**Consequences:** deployment, historical amount migration, and column removal are
-pending as of this decision. Deploy compatible writers to every executor first;
+**Consequences at decision time:** deployment, historical amount migration, and
+column removal were pending. Deploy compatible writers to every executor first;
 then migrate only bank-row amounts with bounded filtered reads, amount-only writes
 by row id, and read-back verification; remove `op_type` last. The existing dataset
 includes 594 legacy 0321 rows without an operation label (575 debit-prefix and
@@ -220,3 +220,14 @@ unknown cases for review. Preserve manual rows, user-managed fields, and notes.
 The old `op_type=unparsed` review filter must be retired with the column. No live
 synchronization is authorized by offline tests or migration preparation; it still
 requires an explicit user request. See `_RUNBOOK.md` for rollout order.
+
+**Rollout (2026-10-14):** commit `d98cd6d` was deployed to GitHub Actions and
+the deployed engine verified against the local source. The workflow was paused
+and old runs finished before a bounded amount-only migration changed 770 debit
+signs and cleared two confirmation amounts. Final read-back verified all 810
+bank rows. The curated magnitude difference, notes, manual payment rows, and
+user-managed fields were preserved. The legacy `op_type` column was removed
+after verification and Actions re-enabled. No manual phone synchronization was
+run. Kimi fallback access was unavailable, so its assets were not upgraded;
+deploy and verify the same engine there before reuse. The one-time migration
+tool requires the legacy column and must not be rerun against the migrated doc.
