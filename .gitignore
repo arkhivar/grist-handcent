@@ -6,3 +6,7 @@ grist_api.txt
 __pycache__/
 *.pyc
 artifact.json
+.venv/
+
+# Private migration plans (row IDs and before/after amounts; never commit)
+.local/

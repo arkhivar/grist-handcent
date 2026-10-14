@@ -3,6 +3,97 @@
 Operations for the SMS → Grist pipeline. Complements
 `_PIPELINE.md` (how it works) and `_GRIST.md` (where data lives).
 
+## Local verification
+
+Use the existing `.venv` (Python 3.12.14 on this host) and the repository
+requirements. If rebuilding it, create `.venv` with an available Python 3.12
+interpreter; the `py` launcher is unavailable on this host.
+
+```powershell
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+`tests/test_signed_amounts.py` uses synthetic fixtures and mocked service
+boundaries. Report only the results of checks actually run. The old external
+`offline_harness.py` is no longer available; historical references below describe
+past validation, not a runnable current test suite. Importing or compiling the
+engine does not contact services. Calling `run()` or `runner.py` starts live
+synchronization and requires an explicit user request.
+
+## Signed-amount rollout (prepared 2026-10-14; pending)
+
+The local engine now uses negative outgoing amounts, positive incoming amounts,
+and blank amounts for confirmation requests, declines, codes, promos, and
+unparsed messages. It keeps `op_type` only as an internal parser label. Existing
+Grist data and schema have not been changed, and deployment is pending.
+
+Validation on 2026-10-14: 49 synthetic offline tests passed. A separate live API
+check wrote and read back seven synthetic rows in a temporary table without an
+`op_type` column; positive, negative, and blank amounts matched. The temporary
+table was removed, and no phone synchronization was run. The read-only plan
+covered 810 bank rows: 770 debit sign changes and two confirmation amounts to
+clear, with no unresolved rows. One inferred expense has a stored magnitude
+different from its SMS; the plan preserves the stored magnitude and flags the
+difference. Counts must be refreshed if data changes before rollout.
+
+The configured document id `tRknrJrfbW3L` is the same development document
+targeted by active scheduled SMS automation. Its observed name is
+`sandbox(copy)` and the supplied access is editor-level. The user confirmed
+that SeaTable is production and this Grist document is development; scheduled
+Grist writers still need coordinated rollout. A schema read on 2026-10-14 found
+`amount` Numeric, `op_type` Text, and no formula referencing `op_type`.
+
+1. Run offline tests and deploy the compatible writer to every active executor
+   first. Actions uses the deployed repository copy; the secondary automation
+   needs the same asset update. Account for active and queued old executions.
+   The 15-minute fallback and phone dispatch can otherwise keep running old code.
+   Do not delete the column while an old writer still needs it.
+2. Plan the existing-row migration with `tools/migrate_signed_amounts.py`, whose
+   default mode is read-only. Read only bounded, filtered bank records for
+   `source` `0321` or `900` with message identifiers, using SQL keyset pages or
+   small exact-id reads; this server ignores record offsets. Classify known
+   legacy operation labels and the debit/credit prefixes of old 0321 notes.
+   The 2026-10-14 read found 594 blank-label 0321 rows: 575 debit and 19 credit.
+   Review unknown or ambiguous rows rather than guessing their direction.
+3. Apply only the planned `amount` changes to bank rows, in bounded batches by
+   Grist row id. Recheck current values before each write and read each batch
+   back afterwards. Duplicate mids exist, so mid alone is not a migration row
+   identity. Preserve notes, manual payment rows, and every user-managed field.
+   Blank informational amounts must remain distinct from zero.
+4. Verify migration coverage and remaining exceptions before removing `op_type`
+   last. Review views or filters that still use it; the old unparsed filter no
+   longer works after removal. Bank rows with blank amounts can be reviewed using
+   `source` and `notes`. Record the deployed revision and migration result when
+   rollout actually happens.
+
+The migration tool reads its key only from `GRIST_API_KEY`. Supply it through
+the local environment without printing it or placing it in a command, document,
+or committed file. To create a read-only plan:
+
+```powershell
+.venv\Scripts\python.exe tools/migrate_signed_amounts.py --doc-id tRknrJrfbW3L --plan .local/signed-amounts-plan.json
+```
+
+The ignored `.local` plan contains before/after amounts and notes hashes, without
+raw SMS text or credentials. A new plan refuses to overwrite an existing filename.
+Use a fresh filename and rebuild the plan if bank rows or classification inputs
+change. After deploying the new writer and allowing old executions to finish,
+apply and verify the reviewed plan:
+
+```powershell
+.venv\Scripts\python.exe tools/migrate_signed_amounts.py --doc-id tRknrJrfbW3L --plan .local/signed-amounts-plan.json --apply --writers-updated
+```
+
+`--writers-updated` records the prerequisite; it does not deploy the engine or
+check Actions for old runs. The tool never drops `op_type`. Remove the column
+separately only after successful migration verification and dependency review.
+
+A row with the old wrong amount sign will fail the prepared sync's verification
+and remain on the phone until the separate migration fixes it. Do not relax the
+verification invariant to drain the inbox. Planning and migration do not authorize
+a live synchronization run.
+
 ## Token refresh (the ~5-week ritual)
 
 **Symptoms:** REST 401; widget red banner "token refresh needed"; artifact field
@@ -80,9 +171,10 @@ when it drops or reconnects, DNS resolution fails briefly. Not a pipeline defect
 First zero-inbox run crashed on 0321 with
 `ValueError: dictionary update sequence element #0 has length 5; 2 is required` —
 `dict()` was called on a list of 5-key dicts. Fired only when the conversation was
-non-empty (900 happened to be empty). Fixed; an offline harness
-(`offline_harness.py`, task workspace) replays a synthetic 0321 dataset against the
-real `run_sender` to prove the deletion set, twin-folding, and row shapes.
+non-empty (900 happened to be empty). Fixed; the then-available offline harness
+(`offline_harness.py`, task workspace) replayed a synthetic 0321 dataset against the
+real `run_sender` to verify the deletion set, twin-folding, and row shapes. That
+external harness is now unavailable; use the repository tests for current changes.
 
 ### 2026-09-28 — stalled POST triplicates (cleaned)
 During migration, one retried batch insert landed 3× (the server accepts the write
@@ -92,7 +184,8 @@ batch, not just at the end.
 
 ## Environment notes
 
-- Managed Python ships `websockets` 17.1 (sync API) — no pip installs needed.
+- Local and Actions validation use Python 3.12 and `requirements.txt`
+  (`websockets>=12,<14`); install into the virtual environment before testing.
 - All display times are **Asia/Vladivostok (UTC+10)**.
 - **Windows Defender aggressively quarantines fresh unsigned binaries** on this
   machine (once ate `kimi-slides.exe`, cloud-heuristic false positive). If a tool or

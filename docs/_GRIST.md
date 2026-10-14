@@ -16,33 +16,59 @@ one live payment ledger and the sync engine's only write target. The engine read
 the table id from the `GRIST_TABLE` env var and defaults to `Transactions` — future
 renames are a Variable edit, no code change (decision #13).
 
+**2026-10-14 transition:** signed amounts and omission of `op_type` are
+prepared in the local writer (decision #15). The live schema and existing
+rows have not been migrated, and deployment is pending. A schema read found
+`amount` Numeric and `op_type` Text, despite the historical Choice description
+in decision #8. No formula referencing `op_type` was found in that read.
+Deploy the compatible writer first, migrate existing bank amounts second,
+and remove `op_type` last; see `_RUNBOOK.md`.
+
 | Group | Columns |
 |---|---|
-| Engine base (written every row) | `datetime` (epoch seconds; the single source of truth for when — filled from SMS timestamp for bank rows, copied from the old `Date` column for payment rows), `notes` (holds the raw SMS text — the old `text` column was merged into `notes`), `mid` (Int), `source` (Choice, single select), `op_type` (Choice, single select, since 2026-10-01) |
-| Engine parsed-only (bank operations) | `amount` (unified money column — payment rows' old `Paid` values were moved here), `counterparty`, `balance_after`, `doc_number`, `account_from`, `account_to` |
+| Prepared engine base (written every row) | `datetime` (epoch seconds; the single source of truth for when — filled from SMS timestamp for bank rows, copied from the old `Date` column for payment rows), `notes` (holds the raw SMS text — the old `text` column was merged into `notes`), `mid` (Int), `source` (Choice, single select) |
+| Prepared engine parsed-only | `amount` (Numeric; signed cash movement for bank rows, blank for informational messages), `counterparty`, `balance_after`, `doc_number`, `account_from`, `account_to` |
+| Live legacy column, removal pending | `op_type` (Text as observed 2026-10-14; omitted by the prepared writer) |
 | **User-owned — the pipeline NEVER writes these** | `category` (Choice), `performance` (Ref), `student`, `sprint_*`… — plus manual edits of `notes` |
 
 Notes:
 - `source` vocabulary: `900`, `0321` (bank senders) · `AVq`, `DSc`, `SBb`, `ALb`
   (manual payment rows).
-- `op_type` is the user's single-select curation axis. Vocabulary: `expense`,
+- The legacy `op_type` vocabulary and current internal parser labels are `expense`,
   `income` (0321 parsed) · `otp` (archived codes — both senders since 2026-10-09,
   decision #14) · `unparsed` (zero-inbox catch-all) · legacy values from the
   migrated T900 rows: `purchase`, `purchase_sbp`, `transfer_out`, `transfer_in`,
   `sbp_in`, `refund`, `payment`, `fee`, `confirm`, `promo`, `declined`,
   `court_collection`.
-- Unparsed rows and code rows carry exactly the 5 base keys; `op_type="unparsed"`
-  for the former, `op_type="otp"` for the latter. 0321 codes became rows on
+- The prepared writer gives unparsed rows and code rows the four base keys
+  `{datetime, notes, mid, source}` with no amount. Their internal labels remain
+  `unparsed` and `otp`. The old writer also included `op_type`. 0321 codes became rows on
   2026-10-09 (decision #14) — before that they were deleted without a row.
 - Columns removed in the 2026-10-01/02 restructure — do not reference them anywhere:
-  `direction` (in/out/info is carried by `op_type`), `card` (user assigns it
+  `direction` (the prepared writer conveys cash direction through amount sign), `card` (user assigns it
   manually; the engine must NOT write it), `doc_date`, `Date` (both retired —
   `datetime` is the single timestamp column), `Paid` (values moved to the unified
   `amount`), `via` (merged into `source`), `notes2` (was always empty),
   `text` (merged into `notes`), `date2` (renamed to `datetime`).
 
-**Review workflow:** filter `op_type = unparsed` → sort/categorize/delete *in Grist*.
-The phone inbox is expected to be empty; if it isn't, something's wrong.
+After rollout, outgoing amounts are negative and incoming amounts are positive:
+
+| Internal operation | Grist `amount` |
+|---|---|
+| `expense`, `purchase`, `purchase_sbp`, `transfer_out`, `payment`, `fee`, `court_collection` | `-abs(parsed amount)` |
+| `income`, `transfer_in`, `sbp_in`, `refund` | `abs(parsed amount)` |
+| `confirm`, `declined`, `otp`, `promo`, `unparsed` | Blank |
+
+Sign normalization is idempotent and does not alter `balance_after`.
+Confirmation requests and declines record no completed cash movement; their
+requested amounts remain in the raw SMS notes. Blank is distinct from a
+numeric zero. Existing manual payment rows keep their amounts and all other
+fields.
+
+**Review workflow:** review blank-amount bank rows in Grist using `source` and
+`notes`; this group includes codes, informational messages, and unparsed SMS.
+`op_type = unparsed` remains usable only until the legacy column is removed.
+Phone messages with missing or mismatched verified rows stay queued safely.
 
 ### Archive (kept intact, do not write)
 `Income` (19 rows) is the only remaining archive table. The old `Expenses`, `T900`,
@@ -70,6 +96,10 @@ deleted them.
 
 ## Known data caveats
 
+- The 2026-10-14 read found 594 legacy 0321 rows with blank `op_type`: 575
+  debit-prefix rows and 19 credit-prefix rows. A bounded amount migration
+  must recognize these prefixes as well as known legacy operation labels;
+  unknown or ambiguous rows require review and must not be guessed.
 - `mid 3100` appears **3×** under 0321 — faithful to the source (the original
   Expenses table had 3 such rows), not a migration bug.
 - Mid lookups for dedup are **not source-scoped** (mid is treated as globally unique;

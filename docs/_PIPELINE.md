@@ -2,7 +2,9 @@
 
 > The engine behind the "SMS → Grist bridge". Full API history (including dead ends)
 > lives in the `handcent-sms-dedup` skill; this file is the working summary.
-> Everything below was proven against the live services in Sep–Oct 2026.
+> The transport behavior below was established in Sep–Oct 2026. The signed-amount
+> change prepared on 2026-10-14 has not been deployed or migrated in Grist yet;
+> decision #15 and `_RUNBOOK.md` describe the pending rollout.
 
 ## Run phases (per sender, then combined artifact)
 
@@ -11,6 +13,9 @@
    scanned: a mid already in Grist can still be on the phone, and it's a deletion
    target — early-stop on "all known" was removed as a correctness fix.
 2. **Classify** — parsers (see below); anything unmatched becomes an **unparsed** row.
+   The prepared parsers normalize cash amounts by direction: negative outgoing,
+   positive incoming, blank for informational messages. `op_type` is an internal
+   label only and is omitted from the prepared Grist payload.
 3. **Twin-fold** — byte-identical SMS texts fold to ONE row (newest mid wins); **all**
    twin mids become deletion targets (the bank double-sends every debit).
 4. **Dedup vs Grist** — `GET /records?filter={"mid":[...]}` in chunks of 8 (0.3–0.4s
@@ -22,8 +27,12 @@
    Grist instance renaming changes the id itself; there is no rename endpoint. The
    older ~25KB POST-body ceiling that motivated smaller batches is documented in
    `_GRIST.md` — don't raise the batch size without re-probing.
-6. **Read-back verify** — re-fetch by mids (chunked), assert presence (and amount where
-   applicable). **A message may only be deleted after its row is verified — no
+6. **Read-back verify** — re-fetch by mids (chunked), assert presence and compare
+   the expected signed amount within 0.005. Numeric values must be finite;
+   missing values, strings, booleans, NaN, infinity, and opposite signs cannot
+   substitute for a parsed amount. Expected blank requires actual blank and is
+   distinct from numeric zero. Existing rows are not silently rewritten on a
+   mismatch. **A message may only be deleted after its row is verified — no
    exceptions, no exempt message classes.**
 7. **Delete** — websocket pipe (below), 0.8s frame spacing, fresh token + reconnect per
    batch on any error. Never trust `send()` success.
@@ -62,20 +71,26 @@
 
 - **0321**: `СберБизнес. Списание …` → expense row; `СберБизнес. Поступление …` →
   income row (grammar incl. multi-doc "по N документам", counterparty, balance).
-  Regexes were iterated against the full corpus to zero failures.
+  The prepared parser uses `-abs(amount)` for expense and `abs(amount)` for income.
+  Historical regexes were iterated against the original corpus.
 - **900**: card-account message shapes with an op-type dispatch table:
   `purchase`, `purchase_sbp`, `transfer_out`, `transfer_in`, `sbp_in`, `refund`,
   `payment`, `fee`, `confirm`, `promo`, plus special shapes `declined` (insufficient
-  funds — info only), `court_collection` (court-order debit), `otp`. In/out/info is
-  carried by `op_type` semantics; the former `direction` column was removed as
-  redundant (2026-10-01).
+  funds — info only), `court_collection` (court-order debit), `otp`. The prepared
+  parser writes negative `purchase`, `purchase_sbp`, `transfer_out`, `payment`,
+  `fee`, and `court_collection` amounts; positive `transfer_in`, `sbp_in`, and
+  `refund` amounts. It normalizes magnitude with `abs` so existing signed SMS do
+  not have their sign reversed. `confirm` and `declined` have blank amounts:
+  neither records completed cash movement. `balance_after` is unchanged.
 - **OTP classifier** (both senders): contains `Не сообщайте код никому`.
-  Rule: **both senders' codes get a row** (`op_type="otp"`, 5 base keys only — same
-  shape as unparsed rows) so the codes stay glanceable in the widget strip. Nothing
+  Rule: **both senders' codes get a row** (internal label `otp`, four prepared
+  base keys with blank amount, the same shape as unparsed rows) so the codes stay
+  glanceable in the widget strip. Nothing
   is purged without a verified row (decision #14, `_DECISIONS.md`).
 - **unparsed** (zero-inbox): every scanned message that isn't parsed gets
-  `{datetime, notes, mid, source, op_type:"unparsed"}` — exactly those 5 keys, nothing
-  else. Review in Grist, not on the phone.
+  `{datetime, notes, mid, source}` — exactly those four prepared base keys with
+  blank amount. `unparsed` remains an internal label for counters. `promo` also
+  has no cash amount. Review bank rows with blank amounts and their notes in Grist.
 
 ## Grist writes
 
@@ -85,18 +100,25 @@
   (Actions passes the repo Variable of the same name) — receives everything;
   `source` = `"0321"`/`"900"` for bank rows.
 - Engine row keys:
-  - **Base, written every row**: `datetime`, `notes` (raw SMS text), `mid`, `source`,
-    `op_type`.
+  - **Base, written every row by the prepared writer**: `datetime`, `notes`
+    (raw SMS text), `mid`, `source`.
   - **Parsed bank operations only**: `amount`, `counterparty`, `balance_after`,
     `doc_number`, `account_to`, `account_from`.
   - `card`, `doc_date`, `direction`, `text`, `date2`, `notes2`, `via` are **not**
     written anymore — removed or renamed in the 2026-10-01/02 restructure (see
     `_GRIST.md`).
-- `op_type` is a **Choice (single select since 2026-10-01)** column; writers send plain
-  string labels.
+- The prepared writer omits `op_type`; classification remains internal for
+  parsing, OTP collection, and counters. The 2026-10-14 schema read found the
+  existing column is Text. Its removal and the migration of historical unsigned
+  amounts remain pending. See `_GRIST.md` for the complete sign mapping.
 - Writers set ONLY their own fields; user columns (`category`, `performance`,
   `student`, `sprint_*`, manual edits of `notes`) are never touched.
 - `datetime` = `sms_ts // 1000` (epoch seconds); display TZ is Asia/Vladivostok (UTC+10).
+- Bank-row amount migration is a separate bounded operation; the normal sync
+  deduplicates existing rows and preserves user-managed fields and notes.
+- The prepared engine handles legacy `f900-unsent` backlog messages through the
+  normal full sender scan and signed verification. It no longer performs a second
+  presence-only deletion pass that could bypass a failed amount check.
 
 ## Automation deployment
 
@@ -111,6 +133,9 @@
   `automation_112c8e63-0532-432e-9e61-ef8b627db65d` ("SMS → Grist sync"): manual
   trigger, Python, 15-min timeout, entry `sms_grist_sync.py`; triggered from the
   "SMS → Grist bridge" widget on the Daily Finance canvas. Dev harness/fallback.
+- Signed-amount rollout is pending: deploy the compatible writer to both executors,
+  finish a verified amount-only migration of existing bank rows, then remove the
+  legacy column. Do not run live synchronization without an explicit user request.
 - Live verification 2026-10-02 against the unified ledger (then id `RevenueBase`,
   now `Transactions`): 900 → 2 scanned / 2 rows / 2 deleted; 0321 → 2 scanned /
   1 row (1 OTP purged) / 2 deleted; all writes "VERIFY OK".
@@ -135,7 +160,8 @@
 Semantics worth knowing:
 - `parseFailures` counts **unparsed rows written** (post twin-fold) — nonzero is normal
   operation under the zero-inbox philosophy, not an error.
-- `rowsWritten` includes code rows (`op_type="otp"`) since 2026-10-09 (decision #14).
+- `rowsWritten` includes code rows (internal label `otp`) since 2026-10-09
+  (decision #14); omitting the persisted label does not change that contract.
 - A run can be runner-`succeeded` while a sender has `ok:false` + `error` (per-sender
   crash isolation). Always read the senders, not just the run status.
 - `pending` = messages in the final rescan (includes arrivals during the run window).

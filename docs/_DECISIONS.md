@@ -187,3 +187,36 @@ now covers literally every scanned message — no exempt class remains.
 `rowsWritten` counts code rows too (expected, cosmetic); `parseFailures` still counts
 only `unparsed` rows. `latestCodes` population is unchanged — the codes strip keeps
 working, now fed from ledger rows instead of a side channel.
+
+## 15. Signed cash amounts; remove persisted `op_type` (2026-10-14)
+**Context:** the user wants direction represented by the existing `amount` column
+and no longer wants `op_type` in Grist. Unsigned outflows and requested amounts in
+confirmation/decline messages can be mistaken for incoming money. A schema read
+found `amount` Numeric and the legacy `op_type` Text, despite decision #8's
+historical Choice conversion; no formula referencing it was found. Existing
+manual payment rows and user-managed fields must remain intact.
+
+**Decision:** the prepared local parser uses `-abs(amount)` for `expense`,
+`purchase`, `purchase_sbp`, `transfer_out`, `payment`, `fee`, and `court_collection`;
+`abs(amount)` for `income`, `transfer_in`, `sbp_in`, and `refund`. The user confirmed
+that `confirm` and `declined` amounts are blank. `otp`, `promo`, and `unparsed`
+amounts are also blank. `balance_after` retains its parsed value. `op_type`
+remains internal for parser dispatch, OTP collection, and unparsed counters, but
+`fields_txn` omits it from Grist payloads. Base keys become
+`{datetime, notes, mid, source}`.
+
+Read-back verification compares finite numeric signed amounts within 0.005 and
+distinguishes blank from zero. A mismatch prevents phone deletion; it does not
+overwrite existing fields during normal synchronization. Synthetic repository
+tests replace the unavailable external offline harness for this change.
+
+**Consequences:** deployment, historical amount migration, and column removal are
+pending as of this decision. Deploy compatible writers to every executor first;
+then migrate only bank-row amounts with bounded filtered reads, amount-only writes
+by row id, and read-back verification; remove `op_type` last. The existing dataset
+includes 594 legacy 0321 rows without an operation label (575 debit-prefix and
+19 credit-prefix rows), so migration also recognizes these prefixes and leaves
+unknown cases for review. Preserve manual rows, user-managed fields, and notes.
+The old `op_type=unparsed` review filter must be retired with the column. No live
+synchronization is authorized by offline tests or migration preparation; it still
+requires an explicit user request. See `_RUNBOOK.md` for rollout order.

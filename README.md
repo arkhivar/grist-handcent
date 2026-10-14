@@ -8,10 +8,17 @@ phone (Handcent app, deviceId 2555969); the pure-Python engine
 `sms_grist_sync.py` parses them and writes one row per message to a single
 Grist ledger table (id `Transactions`, doc `tRknrJrfbW3L`), reads the row back
 to verify it, then deletes the SMS from the phone. Zero inbox, no exceptions:
-every message gets a row — parsed (`op_type` per transaction type), unparseable
-(`op_type="unparsed"`), codes (`op_type="otp"`, both senders, since
-2026-10-09 / decision #14). Nothing is deleted without a verified row
+every message gets a row — parsed, unparseable, and codes from both senders
+(since 2026-10-09 / decision #14). Nothing is deleted without a verified row
 (decision #1, the load-bearing invariant).
+
+**Prepared change (2026-10-14, decision #15):** this checkout uses signed
+`amount`: outgoing money is negative, incoming money is positive, and
+informational messages have a blank amount. `op_type` remains an internal
+parser label and is omitted from Grist writes. Deployment, existing-row
+migration, and removal of the live `op_type` column are still pending; the
+scheduled Actions executor must receive the new writer before the schema
+changes. See the rollout procedure in `docs/_RUNBOOK.md`.
 
 **Where it runs — one engine, two executors:**
 - **PRIMARY: GitHub Actions** — `.github/workflows/sms-sync.yml`. Triggered by
@@ -36,22 +43,21 @@ every message gets a row — parsed (`op_type` per transaction type), unparseabl
   localStorage ritual, then `gh secret set HANDCENT_AUTH < auth-headers.json`.
   Never print or commit secret values. Details: `_RUNBOOK.md`, `_SECURITY.md`.
 
-**Grist schema right now:** one table, id `Transactions`. Engine-written
-columns — base `{datetime (epoch s), notes (raw SMS text), mid, source,
-op_type}` + parsed-only `{amount, counterparty, balance_after, doc_number,
-account_from, account_to}`. The engine never writes user columns (`category`,
-`performance`, `student`, `sprint_*`, manual `notes` edits). `op_type` is a
-single-select Choice — add new values in Grist before the engine emits them.
-Full schema, vocabulary, and server quirks: `docs/_GRIST.md`.
+**Grist schema:** one table, id `Transactions`. The prepared writer sends
+base `{datetime (epoch s), notes (raw SMS text), mid, source}` + parsed-only
+`{amount, counterparty, balance_after, doc_number, account_from, account_to}`.
+It never updates existing user fields (`category`, `performance`, `student`,
+`sprint_*`, manual `notes` edits). The 2026-10-14 schema read still found an
+`op_type` Text column and `amount` Numeric; the live column and historical
+amounts await migration. Full schema and sign mapping: `docs/_GRIST.md`.
 
 **How to change things safely:**
-- Engine change: edit `sms_grist_sync.py`, run the offline harness
-  (`offline_harness.py` — deliberately NOT in this repo; it lives in the local
-  task workspace `C:\Users\Userman\Documents\kimi\tasks\2026-09-28\
-  09-19-38-157dd3e1\`) — it monkeypatches every network boundary and asserts
-  the zero-inbox contract (deletion set, twin-folding, row shapes). Then
-  deploy the byte-identical copy to the Kimi Work automation assets and push
-  here; Actions picks the new engine up automatically.
+- Engine change: edit `sms_grist_sync.py`, run the repository's synthetic
+  offline tests with `.venv\Scripts\python.exe -m unittest discover -s tests -v`.
+  The formerly documented external `offline_harness.py` is unavailable;
+  do not claim it passed. Deploy the same engine to each executor before
+  changing its Grist schema. Pushing the engine updates Actions; the
+  secondary Kimi Work automation needs its own asset update.
 - Manual run: Actions tab → "SMS → Grist sync" → Run workflow (cid optional),
   or the widget button for the local path.
 - Re-point the table after a Grist rename: edit the `GRIST_TABLE` repo
@@ -61,6 +67,9 @@ Full schema, vocabulary, and server quirks: `docs/_GRIST.md`.
 - **NEVER:** delete before a verified row; write user columns; commit
   secrets; run full-table Grist reads (chunked mid-filter only); trust
   `GET /msg/text/<mid>` — it returns 200 for deleted messages.
+- Live synchronization requires an explicit user request. Installing
+  dependencies, importing the engine, and running offline tests do not
+  authorize a live run.
 
 **Known sharp edges:** VPN drops cause DNS failures (check the VPN first,
 then re-run); Grist API quirks (25KB POST ceiling, `offset` ignored, chunked
@@ -68,7 +77,7 @@ mid-filter reads of 8); the 5-week JWT expiry (401 = refresh ritual);
 identical-code twin bursts are debounced by the Actions concurrency group.
 Deep docs: `docs/_PIPELINE.md` (how it works), `docs/_RUNBOOK.md`
 (operations, token ritual, incident log), `docs/_DECISIONS.md` (why it is
-this way, #1–#14), `docs/_GRIST.md` (data), `_EVOLUTION.md` (history),
+this way, #1–#15), `docs/_GRIST.md` (data), `_EVOLUTION.md` (history),
 `_SECURITY.md` (threat model), `docs/_ROADMAP.md` (historical assessment).
 
 ## GitHub Actions compute

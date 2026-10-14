@@ -3,13 +3,14 @@
 Zero-inbox edition: EVERY scanned message ends up as a verified Grist row in
 the unified ledger table (`Transactions` by default, overridable via the
 `GRIST_TABLE` env var) and is then deleted from the phone — codes and
-unparseable messages included (op_type="otp" / "unparsed" rows); nothing is
-ever deleted without a verified row.
+unparseable messages included; nothing is ever deleted without a verified row.
+Amounts express cash flow: credits are positive, debits negative, and
+informational messages have no amount. Operation types are internal only.
 
 Ports the proven logic from the battle-tested workspace scripts:
   - scan900.py          (REST pagination of Handcent msgs)
   - py_pipe.py          (browser-free websocket deletion pipe)
-  - parse_expenses.py / parse_income.py / parse_900.py  (parsers, regexes verbatim)
+  - parse_expenses.py / parse_income.py / parse_900.py  (original parser grammars)
   - grist_exp_write2.py / grist_t900_write2.py / grist_t900_verify.py
                         (chunked filter dedup, batch writes, read-back verify)
   - handcent-sms-dedup SKILL.md (0321 OTP classifier, ws protocol pitfalls)
@@ -26,6 +27,7 @@ printed or logged.
 
 import datetime
 import json
+import math
 import os
 import re
 import time
@@ -306,17 +308,17 @@ def to_float(s):  # parse_expenses.py / parse_900.py
 
 def is_otp_0321(text):
     """0321 OTP/code classifier: every code message contains the catch-all
-    phrase — matched exactly the 489 codes and nothing else. Codes now get
-    a ledger row (op_type="otp") like everything else."""
+    phrase — matched exactly the 489 codes and nothing else. Codes get
+    an amountless ledger row like other informational messages."""
     return "Не сообщайте код никому" in text
 
 
 def classify_0321(text):
     """Returns 'expense' | 'income' | 'otp' | None.
     None means UNPARSED under zero-inbox rules: the message still gets a
-    ledger row (op_type="unparsed") and is deleted after verification.
-    kind 'otp' also gets a ledger row (op_type="otp") — same 5-key base
-    shape as unparsed rows. There are NO keeper/exempt messages anymore."""
+    ledger row and is deleted after verification. OTP and unparsed rows
+    use the same four persisted base fields; classification is internal.
+    There are NO keeper/exempt messages anymore."""
     if text.startswith("СберБизнес. Списание"):
         return "expense"
     if text.startswith("СберБизнес. Поступление"):
@@ -334,7 +336,7 @@ def parse_expense(m):
     amount, acc_from, acc_to, doc_no, doc_dt, n_docs, cp, bal, bal_dt = r.groups()
     return {
         "mid": m["mid"], "sms_ts": m["ts"], "text": m["data"],
-        "amount": to_float(amount),
+        "amount": -abs(to_float(amount)),
         "account_from": acc_from, "account_to": acc_to,
         "doc_number": doc_no or (f"{n_docs} docs" if n_docs else None),
         "counterparty": (cp or "").strip() or None,
@@ -350,7 +352,7 @@ def parse_income(m):
     amount, acc_to, acc_from, doc_no, doc_dt, n_docs, cp, bal, bal_dt = r.groups()
     return {
         "mid": m["mid"], "sms_ts": m["ts"], "text": m["data"],
-        "amount": to_float(amount),
+        "amount": abs(to_float(amount)),
         "account_to": acc_to, "account_from": acc_from,
         "doc_number": doc_no or (f"{n_docs} док." if n_docs else None),
         "counterparty": (cp or "").strip() or None,
@@ -359,9 +361,9 @@ def parse_income(m):
 
 
 def parse_900(m):
-    """Verbatim port of parse_900.py parse() (minus the dropped `card`
-    column). Returns (row, err); err set means the caller writes an
-    op_type="unparsed" row instead."""
+    """Parse consumer-bank SMS with signed cash-flow amounts.
+    Returns (row, err); err set means the caller stores an amountless row.
+    Operation types stay internal for classification and reporting."""
     t = m["data"]
     base = {"mid": m["mid"], "sms_ts": m["ts"], "text": t,
             "op_type": None, "amount": None,
@@ -370,11 +372,13 @@ def parse_900(m):
     if c:
         _card, hhmm, op, bal, comment = c.groups()
         base.update(balance_after=to_float(bal))
-        for rx, op_type, _dir, ia, ic in OPS_900:
+        for rx, op_type, direction, ia, ic in OPS_900:
             r = rx.match(op)
             if r:
                 g = r.groups()
-                base.update(op_type=op_type, amount=to_float(g[ia]))
+                amount = abs(to_float(g[ia]))
+                base.update(op_type=op_type,
+                            amount=-amount if direction == "out" else amount)
                 cp = (g[ic] or "").strip() if ic is not None else ""
                 if op_type == "sbp_in":
                     cp = f"{(g[ic] or '').strip()} (СБП {g[0]})"
@@ -384,13 +388,13 @@ def parse_900(m):
     d2 = DECLINED_RX.match(t)
     if d2:
         base.update(op_type="declined",
-                    amount=to_float(d2.group(3)), counterparty=(d2.group(4) or "").strip() or None,
+                    counterparty=(d2.group(4) or "").strip() or None,
                     balance_after=to_float(d2.group(5)))
         return base, None
     c3 = COURT_RX.match(t)
     if c3:
         base.update(op_type="court_collection",
-                    amount=to_float(c3.group(3)),
+                    amount=-abs(to_float(c3.group(3))),
                     counterparty=f"взыскатель, судебный приказ №{c3.group(4)} от {c3.group(5)}")
         return base, None
     if "Никому не сообщайте код" in t:
@@ -399,7 +403,7 @@ def parse_900(m):
     c2 = CONFIRM_RX.match(t)
     if c2:
         base.update(op_type="confirm",
-                    counterparty=f"на карту {c2.group(2)}", amount=to_float(c2.group(3)))
+                    counterparty=f"на карту {c2.group(2)}")
         return base, None
     if t.startswith("Дмитрий Владимирович"):
         base.update(op_type="promo")
@@ -421,7 +425,6 @@ def unparsed_row(m):
 def fields_txn(r, source):
     f = {"datetime": r["sms_ts"] // 1000, "notes": r["text"], "mid": r["mid"],
          "source": source,
-         "op_type": r.get("op_type"),
          "amount": r.get("amount"), "counterparty": r.get("counterparty"),
          "balance_after": r.get("balance_after"),
          "doc_number": r.get("doc_number"),
@@ -448,6 +451,15 @@ def fold_twins(rows):
 # Writer: batch POST + chunked read-back verify (grist_*_write2.py pattern)
 # ---------------------------------------------------------------------------
 
+def amount_matches(expected, actual):
+    """Compare signed amounts; blank is distinct from zero or invalid data."""
+    if expected is None:
+        return actual is None
+    return (type(expected) in (int, float) and type(actual) in (int, float)
+            and math.isfinite(expected) and math.isfinite(actual)
+            and abs(actual - expected) <= 0.005)
+
+
 def write_and_verify(key, table, unique_rows, fields_fn, check_amount):
     """Writes missing rows in batches of 25, then read-back-verifies every
     mid via chunked filter. Returns (rows_written, verified_mids set)."""
@@ -469,7 +481,7 @@ def write_and_verify(key, table, unique_rows, fields_fn, check_amount):
     bad = []
     if check_amount:
         bad = [r["mid"] for r in unique_rows if r["mid"] in by_mid
-               and abs((by_mid[r["mid"]].get("amount") or 0) - (r.get("amount") or 0)) > 0.005]
+               and not amount_matches(r.get("amount"), by_mid[r["mid"]].get("amount"))]
     if missing or bad:
         log(f"grist {table}: VERIFY incomplete missing={missing[:8]} bad={bad[:8]}")
     else:
@@ -738,30 +750,9 @@ def run(ctx):
         for cur in senders:
             cid = CID_0321 if cur == "0321" else CID_900
             artifact["senders"][cur] = run_sender(cfg, cid, cur, codes)
-        # f900-unsent.json (900 run only): mids whose deletion frames were never
-        # sent. Rows were verified yesterday; re-verify against the ledger table,
-        # then delete the ones still on the phone.
-        if "900" in senders and cfg["f900_unsent"]:
-            f900 = cfg["f900_unsent"]
-            checked = grist_fetch_fields(cfg["grist_key"], TABLE, f900)
-            ok_mids = set(checked)
-            skipped = [m for m in f900 if m not in ok_mids]
-            if skipped:
-                log(f"f900-unsent not in {TABLE}, skipped: {skipped[:10]}")
-            if ok_mids:
-                scan = {m["mid"]: m for m in
-                        rescan_conversation(CID_900, cfg["headers"])}
-                present = [scan[mid] for mid in sorted(ok_mids) if mid in scan]
-                gone = sorted(ok_mids - set(scan))
-                if gone:
-                    log(f"f900-unsent already off the phone: {gone[:10]}")
-                if present:
-                    log(f"f900-unsent: deleting {len(present)} verified mids")
-                    deleted, final_msgs, _ = delete_with_verification(
-                        CID_900, cfg["headers"], present)
-                    artifact["senders"]["900"]["smsDeleted"] += deleted
-                    if final_msgs:
-                        artifact["senders"]["900"]["pending"] = len(final_msgs)
+        # The full sender scan also includes any legacy f900-unsent messages.
+        # They must pass the same signed-amount verification as every other SMS;
+        # a separate presence-only deletion pass would bypass that check.
     except TokenExpired:
         artifact["tokenExpired"] = True
         if cur:
